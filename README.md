@@ -23,6 +23,38 @@ make test             # lance les tests
 
 Le serveur expose `http://localhost:8080/healthz`.
 
+### Initialiser Garage (une seule fois après `make docker-up`)
+
+Garage exige une init manuelle (assignation de layout, création de clés, création du bucket) :
+
+```bash
+NODE_ID=$(docker compose exec -T garage /garage node id -q | cut -d@ -f1)
+docker compose exec -T garage /garage layout assign -z dc1 -c 1G "$NODE_ID"
+docker compose exec -T garage /garage layout apply --version 1
+
+docker compose exec -T garage /garage key create lmdm-dev-key
+# Notez les valeurs `Key ID` et `Secret key` retournées.
+
+docker compose exec -T garage /garage bucket create lmdm-packages
+docker compose exec -T garage /garage bucket allow \
+    --read --write --owner lmdm-packages --key lmdm-dev-key
+```
+
+Puis exportez les clés avant de démarrer le serveur :
+
+```bash
+export LMDM_S3_ACCESS_KEY=<Key ID>
+export LMDM_S3_SECRET_KEY=<Secret key>
+go run ./cmd/lmdm-server
+```
+
+Testez :
+
+```bash
+curl -s http://localhost:8080/healthz | jq
+# => {"status":"ok","checks":{"db":"ok","nats":"ok","s3":"ok"}}
+```
+
 ## Structure
 
 - `proto/lmdm/v1/` — définitions protobuf

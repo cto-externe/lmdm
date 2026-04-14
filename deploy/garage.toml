@@ -6,7 +6,7 @@ replication_factor = 1
 
 rpc_bind_addr = "[::]:3901"
 rpc_public_addr = "127.0.0.1:3901"
-rpc_secret = "dev-only-change-in-prod-dev-only-change-in-prod-dev-only-change-00"
+rpc_secret = "8521eb112217c52a877b22a2b87bffc886c57f0778c1f2404da9fe9ecb0d3bcb"
 
 [s3_api]
 s3_region = "garage"

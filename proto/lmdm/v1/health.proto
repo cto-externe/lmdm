@@ -1,0 +1,165 @@
+// LMDM — Linux MDM
+// Health monitoring messages: disk SMART/NVMe, battery, firmware, temperatures.
+// Transport: NATS (subject: fleet.agent.{device_id}.health)
+// Frequency: every 6h (disks), 15min (battery), 24h (firmware).
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "google/protobuf/timestamp.proto";
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Health Snapshot (Agent → Server via NATS)
+// Subject: fleet.agent.{device_id}.health
+// ---------------------------------------------------------------------------
+
+message HealthSnapshot {
+  DeviceID device_id = 1;
+
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Per-disk health (SMART for SATA, nvme smart-log for NVMe).
+  repeated DiskHealth disks = 3;
+
+  // Battery health (laptop only).
+  BatteryHealth battery = 4;
+
+  // Temperature readings.
+  TemperatureReadings temperatures = 5;
+
+  // Firmware update availability (via fwupd).
+  repeated FirmwareUpdate firmware_updates = 6;
+
+  // Overall computed score.
+  HealthScore overall_score = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Disk Health
+// ---------------------------------------------------------------------------
+
+message DiskHealth {
+  string name  = 1; // "sda", "nvme0n1"
+  string model = 2;
+  string type  = 3; // "sata", "nvme"
+
+  // Overall SMART status.
+  bool   smart_passed = 4; // True if SMART self-assessment passed.
+
+  // Common metrics (available on both SATA and NVMe).
+  uint32 temperature_celsius  = 5;
+  uint32 power_on_hours       = 6;
+  uint32 life_remaining_pct   = 7;  // Wear leveling: 100 = new, 0 = end of life.
+  uint64 total_bytes_written  = 8;  // Lifetime total bytes written (TBW).
+  uint64 total_bytes_read     = 9;
+
+  // SATA-specific (from smartctl).
+  SATASmartAttributes sata_attributes = 10;
+
+  // NVMe-specific (from nvme smart-log).
+  NVMeSmartLog nvme_smart_log = 11;
+
+  // Alert level for this disk.
+  HealthScore score = 12;
+
+  // Human-readable summary for the console.
+  string summary = 13; // e.g. "Healthy, 92% life remaining, 28°C"
+}
+
+message SATASmartAttributes {
+  uint32 reallocated_sectors     = 1; // ID 5 — critical if > 0
+  uint32 pending_sectors         = 2; // ID 197
+  uint32 uncorrectable_errors    = 3; // ID 198
+  uint32 command_timeout_count   = 4; // ID 188
+  uint32 current_pending_sector  = 5; // ID 197
+  bool   self_test_passed        = 6; // Last self-test result
+
+  // Raw attributes for advanced display.
+  repeated SmartAttribute raw_attributes = 7;
+}
+
+message SmartAttribute {
+  uint32 id        = 1;
+  string name      = 2;
+  uint32 value     = 3;
+  uint32 worst     = 4;
+  uint32 threshold = 5;
+  int64  raw_value = 6;
+  string flags     = 7; // "PO-S-C" etc.
+}
+
+message NVMeSmartLog {
+  uint32 critical_warning       = 1; // Bitmask: spare, temp, reliability, ro, volatile
+  uint32 available_spare_pct    = 2;
+  uint32 available_spare_threshold = 3;
+  uint32 percentage_used        = 4; // 0-100+, can exceed 100
+  uint64 data_units_read        = 5;
+  uint64 data_units_written     = 6;
+  uint64 host_read_commands     = 7;
+  uint64 host_write_commands    = 8;
+  uint32 media_errors           = 9;
+  uint32 num_error_log_entries  = 10;
+  uint32 unsafe_shutdowns       = 11;
+  uint32 power_cycles           = 12;
+}
+
+// ---------------------------------------------------------------------------
+// Battery Health
+// ---------------------------------------------------------------------------
+
+message BatteryHealth {
+  bool   present              = 1;
+  uint32 design_capacity_mwh  = 2;
+  uint32 full_capacity_mwh    = 3;
+  uint32 health_pct           = 4; // (full / design) * 100
+  uint32 cycle_count          = 5;
+  string status               = 6; // "charging", "discharging", "full"
+  uint32 charge_pct           = 7;
+  HealthScore score           = 8;
+  string summary              = 9; // e.g. "Health 78%, 312 cycles, charging"
+}
+
+// ---------------------------------------------------------------------------
+// Temperatures
+// ---------------------------------------------------------------------------
+
+message TemperatureReadings {
+  // CPU temperature (from /sys/class/thermal/ or hwmon).
+  repeated TemperatureSensor cpu = 1;
+
+  // Disk temperatures are in DiskHealth.
+
+  // GPU temperature (if available).
+  repeated TemperatureSensor gpu = 2;
+
+  // Ambient / other sensors.
+  repeated TemperatureSensor other = 3;
+}
+
+message TemperatureSensor {
+  string label              = 1; // "Core 0", "Package id 0", "GPU"
+  int32  temperature_celsius = 2;
+  int32  high_threshold     = 3; // Warning threshold (if known).
+  int32  critical_threshold = 4; // Critical threshold (if known).
+}
+
+// ---------------------------------------------------------------------------
+// Firmware Updates (via fwupd / LVFS)
+// ---------------------------------------------------------------------------
+
+message FirmwareUpdate {
+  string device_name    = 1; // "System Firmware", "TPM", "NVMe Controller"
+  string device_id      = 2; // fwupd device ID
+  string current_version = 3;
+  string available_version = 4;
+  string vendor         = 5;
+  string severity       = 6; // "critical", "high", "medium", "low"
+  string description    = 7;
+  string release_url    = 8;
+  uint64 size_bytes     = 9;
+  bool   requires_reboot = 10;
+}

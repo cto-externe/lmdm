@@ -1,0 +1,273 @@
+// LMDM — Linux MDM
+// Server → Agent commands.
+// Transport: NATS
+//   Targeted: fleet.agent.{device_id}.commands
+//   Group:    fleet.group.{group_id}.commands
+//   Global:   fleet.global.commands
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "google/protobuf/timestamp.proto";
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Command Envelope (Server → Agent via NATS)
+// ---------------------------------------------------------------------------
+
+// All commands are wrapped in a signed envelope.
+message CommandEnvelope {
+  // Unique command ID for deduplication and audit.
+  string command_id = 1;
+
+  // Signature of the payload (PQ hybrid).
+  HybridSignature signature = 2;
+
+  // The command itself.
+  oneof command {
+    ApplyProfileCommand     apply_profile     = 10;
+    RemoveProfileCommand    remove_profile    = 11;
+    DeployPackageCommand    deploy_package    = 12;
+    RemovePackageCommand    remove_package    = 13;
+    ApplyPatchesCommand     apply_patches     = 14;
+    ApplyFirmwareCommand    apply_firmware    = 15;
+    RollbackCommand         rollback          = 16;
+    RebootCommand           reboot            = 17;
+    RequestInventoryCommand request_inventory = 18;
+    RequestHealthCommand    request_health    = 19;
+    OpenRemoteCommand       open_remote       = 20;
+    UpdateAgentCommand      update_agent      = 21;
+    SetRelayCommand         set_relay         = 22;
+    RunHealthCheckCommand   run_health_check  = 23;
+    RevokeCommand           revoke            = 24;
+  }
+
+  google.protobuf.Timestamp issued_at  = 3;
+  google.protobuf.Timestamp expires_at = 4; // Command is discarded if received after expiry.
+
+  // Deployment context (if this command is part of a deployment workflow).
+  DeploymentID deployment_id = 5; // Nullable — only set during canary/rollout.
+  bool         is_canary     = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Profile / Policy Commands
+// ---------------------------------------------------------------------------
+
+message ApplyProfileCommand {
+  ProfileID profile_id = 1;
+  string    version    = 2;
+  
+  // Signed profile content (YAML serialized, agent verifies signature before applying).
+  bytes             profile_content = 3;
+  HybridSignature   profile_signature = 4;
+  
+  // Deployment mode.
+  bool force = 5; // If true, reapply even if already compliant.
+}
+
+message RemoveProfileCommand {
+  ProfileID profile_id = 1;
+  // On removal, the agent rolls back all changes made by this profile.
+}
+
+// ---------------------------------------------------------------------------
+// Package Deployment Commands
+// ---------------------------------------------------------------------------
+
+message DeployPackageCommand {
+  string package_name    = 1;
+  string package_version = 2;
+
+  // Package recipe (YAML, signed).
+  bytes           recipe_content   = 3;
+  HybridSignature recipe_signature = 4;
+
+  // If the package has a binary artifact (stored in Garage S3).
+  string download_url    = 5; // Pre-signed URL (direct from Garage or via relay).
+  string checksum_blake3 = 6;
+  uint64 size_bytes      = 7;
+
+  // Relay info (if the agent should fetch from a LAN relay instead of WAN).
+  string relay_url = 8; // e.g. "http://192.168.1.10:18080/packages/{hash}"
+}
+
+message RemovePackageCommand {
+  string package_name = 1;
+}
+
+// ---------------------------------------------------------------------------
+// Patch Management Commands
+// ---------------------------------------------------------------------------
+
+message ApplyPatchesCommand {
+  // Filter which patches to apply.
+  PatchFilter filter = 1;
+
+  // Schedule (if empty, apply immediately).
+  google.protobuf.Timestamp scheduled_at = 2;
+
+  // Whether to reboot if kernel update is applied.
+  bool auto_reboot = 3;
+
+  // Reboot window (if auto_reboot = true).
+  google.protobuf.Timestamp reboot_after  = 4;
+  google.protobuf.Timestamp reboot_before = 5;
+}
+
+message PatchFilter {
+  bool security_only = 1;             // Only security patches.
+  repeated string include_packages = 2; // Specific packages to update (empty = all).
+  repeated string exclude_packages = 3; // Packages to skip.
+}
+
+message ApplyFirmwareCommand {
+  string fwupd_device_id    = 1;
+  string target_version     = 2;
+  bool   requires_reboot    = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Rollback
+// ---------------------------------------------------------------------------
+
+message RollbackCommand {
+  // Which deployment to rollback.
+  DeploymentID deployment_id = 1;
+
+  // Or rollback to a specific snapshot.
+  string snapshot_id = 2;
+
+  // If both are empty, rollback the last deployment.
+}
+
+// ---------------------------------------------------------------------------
+// System Commands
+// ---------------------------------------------------------------------------
+
+message RebootCommand {
+  // Delay before reboot.
+  uint32 delay_seconds = 1;
+
+  // User notification message (displayed on screen before reboot).
+  string user_message = 2;
+}
+
+message RequestInventoryCommand {
+  bool full = 1; // Force a full inventory (not delta).
+}
+
+message RequestHealthCommand {
+  // Empty — just triggers an immediate health snapshot.
+}
+
+message RunHealthCheckCommand {
+  // Run health checks and report results (used during canary validation).
+  repeated HealthCheckDefinition checks = 1;
+}
+
+message HealthCheckDefinition {
+  string name = 1;
+  
+  oneof check {
+    HTTPGetCheck     http_get      = 10;
+    TCPConnectCheck  tcp_connect   = 11;
+    ProcessCheck     process_check = 12;
+    ServiceCheck     service_check = 13;
+    CommandCheck     command_check = 14;
+  }
+
+  uint32 timeout_seconds = 2;
+}
+
+message HTTPGetCheck {
+  string url             = 1;
+  uint32 expected_status = 2; // e.g. 200
+}
+
+message TCPConnectCheck {
+  string host = 1;
+  uint32 port = 2;
+}
+
+message ProcessCheck {
+  string process_name = 1; // Check if this process is running.
+}
+
+message ServiceCheck {
+  string service_name   = 1; // systemd service name.
+  string expected_state = 2; // "active", "inactive"
+}
+
+message CommandCheck {
+  string command       = 1; // Shell command to run.
+  int32  expected_exit = 2; // Expected exit code (default 0).
+}
+
+// ---------------------------------------------------------------------------
+// Remote Access
+// ---------------------------------------------------------------------------
+
+message OpenRemoteCommand {
+  string session_id   = 1; // Unique session ID for this remote session.
+  string session_type = 2; // "terminal" or "desktop"
+  string initiated_by = 3; // User ID of the admin requesting access.
+}
+
+// ---------------------------------------------------------------------------
+// Agent Management
+// ---------------------------------------------------------------------------
+
+message UpdateAgentCommand {
+  string target_version    = 1;
+  string download_url      = 2; // Pre-signed URL for the new agent binary.
+  string checksum_blake3   = 3;
+  HybridSignature signature = 4;
+}
+
+message SetRelayCommand {
+  bool   is_relay       = 1;
+  uint32 cache_max_gb   = 2;
+  uint32 listen_port    = 3; // Default: 18080
+}
+
+message RevokeCommand {
+  string reason = 1;
+  // Agent must immediately: stop all modules, delete local keys, stop daemon.
+}
+
+// ---------------------------------------------------------------------------
+// Command Response (Agent → Server via NATS)
+// Subject: fleet.agent.{device_id}.events (with EventType = command result)
+// ---------------------------------------------------------------------------
+
+message CommandResult {
+  string command_id = 1;
+  DeviceID device_id = 2;
+
+  google.protobuf.Timestamp timestamp = 3;
+
+  bool   success    = 4;
+  string error      = 5; // Error message if !success.
+  uint32 duration_ms = 6;
+
+  // Snapshot ID created before this command was applied (for rollback).
+  string snapshot_id = 7;
+
+  // Health check results (if the command triggered health checks).
+  repeated HealthCheckResult health_checks = 8;
+
+  // Deployment context.
+  DeploymentID deployment_id = 9;
+  bool         is_canary     = 10;
+}
+
+message HealthCheckResult {
+  string name    = 1;
+  bool   passed  = 2;
+  string detail  = 3; // e.g. "HTTP 200 OK in 45ms" or "Connection refused"
+  uint32 duration_ms = 4;
+}

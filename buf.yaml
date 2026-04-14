@@ -1,0 +1,20 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # Our package path is `lmdm/v1/` without a version suffix in the proto
+    # directory names — we encode the version in the filename tree instead.
+    - PACKAGE_VERSION_SUFFIX
+    # RemoteService uses symmetric bidirectional streaming for the terminal
+    # and a shared FileChunk type for both upload and download streams. The
+    # STANDARD naming rules assume unary RPCs with unique types and don't
+    # apply to this streaming design.
+    - RPC_REQUEST_RESPONSE_UNIQUE
+    - RPC_REQUEST_STANDARD_NAME
+    - RPC_RESPONSE_STANDARD_NAME
+breaking:
+  use:
+    - FILE

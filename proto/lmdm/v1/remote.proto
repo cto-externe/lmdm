@@ -1,0 +1,103 @@
+// LMDM — Linux MDM
+// Remote access: terminal and desktop streaming.
+// Transport: gRPC bidirectional streaming (mTLS PQ hybrid).
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// gRPC Service
+// ---------------------------------------------------------------------------
+
+service RemoteService {
+  // Terminal: bidirectional stream of stdin/stdout/stderr.
+  // The agent initiates this stream (outbound) when it receives an OpenRemoteCommand.
+  // The server bridges it to the admin's WebSocket in the console.
+  rpc Terminal(stream TerminalData) returns (stream TerminalData);
+
+  // File transfer: upload a file to the agent or download a file from the agent.
+  rpc UploadFile(stream FileChunk) returns (FileTransferResult);
+  rpc DownloadFile(FileRequest) returns (stream FileChunk);
+}
+
+// ---------------------------------------------------------------------------
+// Terminal Streaming
+// ---------------------------------------------------------------------------
+
+message TerminalData {
+  string session_id = 1;
+
+  oneof payload {
+    // Session initialization (first message from agent).
+    TerminalInit   init   = 10;
+
+    // Raw I/O data.
+    bytes          data   = 11; // stdin (console→agent) or stdout/stderr (agent→console)
+
+    // Terminal resize event.
+    TerminalResize resize = 12;
+
+    // Session end.
+    TerminalClose  close  = 13;
+  }
+}
+
+message TerminalInit {
+  DeviceID device_id = 1;
+  string   shell     = 2; // "/bin/bash", "/bin/sh"
+  string   user      = 3; // User to run the shell as.
+  uint32   cols      = 4;
+  uint32   rows      = 5;
+  string   term      = 6; // "xterm-256color"
+}
+
+message TerminalResize {
+  uint32 cols = 1;
+  uint32 rows = 2;
+}
+
+message TerminalClose {
+  int32  exit_code = 1;
+  string reason    = 2; // "user_disconnect", "timeout", "error"
+}
+
+// ---------------------------------------------------------------------------
+// File Transfer
+// ---------------------------------------------------------------------------
+
+message FileChunk {
+  string session_id = 1;
+
+  // First chunk includes metadata.
+  FileMetadata metadata = 2; // Only in first chunk.
+
+  // File data.
+  bytes  data   = 3;
+  uint64 offset = 4;
+  bool   is_last = 5;
+}
+
+message FileMetadata {
+  string path            = 1; // Remote path on the agent.
+  uint64 size_bytes      = 2;
+  string checksum_blake3 = 3;
+  uint32 mode            = 4; // Unix permissions (e.g. 0644).
+}
+
+message FileRequest {
+  string session_id = 1;
+  DeviceID device_id = 2;
+  string path = 3; // Remote path to download.
+}
+
+message FileTransferResult {
+  bool   success         = 1;
+  string error           = 2;
+  uint64 bytes_transferred = 3;
+  string checksum_blake3 = 4;
+}

@@ -1,0 +1,111 @@
+// LMDM — Linux MDM
+// Agent status and heartbeat messages.
+// Transport: NATS (subject: fleet.agent.{agent_id}.status)
+// Frequency: every 60s (adapts to bandwidth class).
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "google/protobuf/timestamp.proto";
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Heartbeat (Agent → Server, every 60s via NATS)
+// Subject: fleet.agent.{device_id}.status
+// ---------------------------------------------------------------------------
+
+message Heartbeat {
+  DeviceID device_id = 1;
+
+  google.protobuf.Timestamp timestamp = 2;
+
+  // System vitals.
+  uint64 uptime_seconds   = 3;
+  double load_avg_1m      = 4;
+  double load_avg_5m      = 5;
+  double load_avg_15m     = 6;
+  uint64 ram_used_mb      = 7;
+  uint64 ram_total_mb     = 8;
+
+  // Disk usage (root partition).
+  uint64 disk_used_gb     = 9;
+  uint64 disk_total_gb    = 10;
+  uint32 disk_used_pct    = 11; // 0-100
+
+  // Network quality (measured by agent toward server).
+  uint32         rtt_ms           = 12;
+  BandwidthClass bandwidth_class  = 13;
+  bool           network_changed  = 14; // True if WAN IP changed since last heartbeat.
+
+  // Module health.
+  repeated ModuleStatus modules = 15;
+
+  // Overall scores.
+  HealthScore     health_score     = 16;
+  ComplianceStatus compliance_status = 17;
+
+  // Agent info.
+  string agent_version = 18;
+
+  // Pending data (accumulated during offline).
+  uint32 pending_events    = 19; // Events waiting to sync.
+  uint32 pending_inventory = 20; // Inventory deltas waiting to sync.
+}
+
+message ModuleStatus {
+  string name   = 1; // "inventory", "patch", "policy", "deploy", "remote", "health", "printer", "relay"
+  bool   active = 2;
+  string state  = 3; // "idle", "running", "error"
+  string error  = 4; // Error message if state == "error".
+}
+
+// ---------------------------------------------------------------------------
+// Agent Event (Agent → Server, ponctuel via NATS)
+// Subject: fleet.agent.{device_id}.events
+// ---------------------------------------------------------------------------
+
+message AgentEvent {
+  DeviceID device_id = 1;
+
+  google.protobuf.Timestamp timestamp = 2;
+
+  EventType type     = 3;
+  EventLevel level   = 4;
+  string     message = 5;
+  map<string, string> metadata = 6; // Arbitrary key-value context.
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED      = 0;
+  EVENT_TYPE_AGENT_STARTED    = 1;
+  EVENT_TYPE_AGENT_STOPPED    = 2;
+  EVENT_TYPE_AGENT_UPDATED    = 3;
+  EVENT_TYPE_NETWORK_CHANGED  = 4;  // WAN IP changed, interface up/down.
+  EVENT_TYPE_PACKAGE_INSTALLED = 5;
+  EVENT_TYPE_PACKAGE_REMOVED  = 6;
+  EVENT_TYPE_PATCH_APPLIED    = 7;
+  EVENT_TYPE_POLICY_APPLIED   = 8;
+  EVENT_TYPE_POLICY_DRIFT     = 9;  // Drift detected: config diverged from policy.
+  EVENT_TYPE_ROLLBACK         = 10;
+  EVENT_TYPE_HEALTH_ALERT     = 11; // Disk failing, battery low, temp high.
+  EVENT_TYPE_ENROLLMENT       = 12;
+  EVENT_TYPE_USB_CONNECTED    = 13;
+  EVENT_TYPE_USB_BLOCKED      = 14;
+  EVENT_TYPE_SERVICE_FAILED   = 15; // A systemd service entered failed state.
+  EVENT_TYPE_PRINTER_FOUND    = 16;
+  EVENT_TYPE_PRINTER_ALERT    = 17; // Consumable low, paper jam.
+  EVENT_TYPE_RELAY_STARTED    = 18;
+  EVENT_TYPE_RELAY_STOPPED    = 19;
+  EVENT_TYPE_FIRST_BOOT       = 20;
+}
+
+enum EventLevel {
+  EVENT_LEVEL_UNSPECIFIED = 0;
+  EVENT_LEVEL_INFO        = 1;
+  EVENT_LEVEL_WARNING     = 2;
+  EVENT_LEVEL_ERROR       = 3;
+  EVENT_LEVEL_CRITICAL    = 4;
+}

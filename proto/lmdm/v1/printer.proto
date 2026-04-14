@@ -1,0 +1,100 @@
+// LMDM — Linux MDM
+// Printer discovery, inventory, and consumable monitoring.
+// Transport: NATS (subject: fleet.agent.{device_id}.printers)
+// Frequency: discovery every 1h, consumables every 6h.
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "google/protobuf/timestamp.proto";
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Printer Discovery Report (Agent → Server via NATS)
+// Subject: fleet.agent.{device_id}.printers
+// ---------------------------------------------------------------------------
+
+message PrinterReport {
+  DeviceID device_id = 1; // The agent that performed the scan.
+  SiteID   site_id   = 2;
+
+  google.protobuf.Timestamp timestamp = 3;
+
+  // Discovered printers on the local network.
+  repeated DiscoveredPrinter printers = 4;
+}
+
+message DiscoveredPrinter {
+  // Identification.
+  string name            = 1; // mDNS name or SNMP sysName.
+  string manufacturer    = 2;
+  string model           = 3;
+  string serial_number   = 4;
+  string firmware_version = 5;
+
+  // Network.
+  string ip_address = 6;
+  string hostname   = 7; // DNS hostname if resolvable.
+  string mac_address = 8;
+
+  // Discovery method.
+  string discovery_method = 9; // "mdns", "snmp", "ipp"
+
+  // Protocols supported.
+  repeated string protocols = 10; // "ipp", "ipps", "lpd", "jetdirect", "airprint"
+
+  // Capabilities.
+  PrinterCapabilities capabilities = 11;
+
+  // Consumable levels (from SNMP Printer-MIB or IPP).
+  repeated Consumable consumables = 12;
+
+  // Page counters.
+  PageCounters counters = 13;
+
+  // Status.
+  PrinterStatus status = 14;
+}
+
+message PrinterCapabilities {
+  bool   color           = 1;
+  bool   duplex          = 2;
+  bool   staple          = 3;
+  bool   scan            = 4;
+  bool   fax             = 5;
+  bool   driverless      = 6; // IPP Everywhere / AirPrint (no PPD needed)
+  repeated string paper_sizes = 7; // "A4", "A3", "Letter", etc.
+  uint32 max_dpi         = 8;
+}
+
+message Consumable {
+  string name       = 1; // "Black Toner", "Cyan Ink", "Drum Unit", "Waste Toner"
+  string type       = 2; // "toner", "ink", "drum", "waste", "fuser", "paper"
+  string color      = 3; // "black", "cyan", "magenta", "yellow", "" (for non-color items)
+  int32  level_pct  = 4; // 0-100, -1 if unknown, -2 if "OK" (binary sensors)
+  string status     = 5; // "ok", "low", "empty", "unknown"
+}
+
+message PageCounters {
+  uint64 total       = 1;
+  uint64 color       = 2;
+  uint64 monochrome  = 3;
+  uint64 duplex      = 4;
+  uint64 total_scans = 5;
+}
+
+message PrinterStatus {
+  string state   = 1; // "idle", "printing", "error", "offline"
+  string detail  = 2; // "paper jam in tray 2", "door open", etc.
+
+  repeated PrinterAlert alerts = 3;
+}
+
+message PrinterAlert {
+  string severity = 1; // "warning", "critical"
+  string message  = 2; // "Toner low: Black", "Paper jam", "Cover open"
+  string code     = 3; // SNMP alert code if available.
+}

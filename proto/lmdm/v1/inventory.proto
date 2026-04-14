@@ -1,0 +1,209 @@
+// LMDM — Linux MDM
+// Inventory messages: hardware and software inventory.
+// Transport: NATS
+//   Full:  fleet.agent.{device_id}.inventory (every 24h)
+//   Delta: fleet.agent.{device_id}.inventory (every 1h, changes only)
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "google/protobuf/timestamp.proto";
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Inventory Report (Agent → Server via NATS)
+// Subject: fleet.agent.{device_id}.inventory
+// ---------------------------------------------------------------------------
+
+message InventoryReport {
+  DeviceID device_id = 1;
+
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Whether this is a full or delta report.
+  bool is_full = 3;
+
+  // Schema version for forward compatibility.
+  uint32 schema_version = 4; // Start at 1.
+
+  // Hardware (populated on full, or when hardware changes are detected).
+  HardwareInventory hardware = 5;
+
+  // Software (populated on full; delta contains only added/removed).
+  SoftwareInventory software = 6;
+
+  // Network (populated on full; delta contains changes).
+  NetworkInventory network = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Hardware
+// ---------------------------------------------------------------------------
+
+message HardwareInventory {
+  SystemInfo  system  = 1;
+  CPUInfo     cpu     = 2;
+  MemoryInfo  memory  = 3;
+  repeated DiskInfo disks = 4;
+  repeated GPUInfo  gpus  = 5;
+  BIOSInfo    bios    = 6;
+  TPMInfo     tpm     = 7;
+  BatteryInfo battery = 8; // null/empty if desktop
+  repeated USBDevice usb_devices = 9;
+  bool        secure_boot_enabled = 10;
+}
+
+message SystemInfo {
+  string manufacturer  = 1; // DMI: /sys/class/dmi/id/sys_vendor
+  string model         = 2; // DMI: /sys/class/dmi/id/product_name
+  string serial_number = 3; // DMI: /sys/class/dmi/id/product_serial
+  string form_factor   = 4; // "desktop", "laptop", "mini-pc", "server", "unknown"
+}
+
+message CPUInfo {
+  string model        = 1; // "AMD Ryzen 7 PRO 7840U"
+  uint32 cores        = 2;
+  uint32 threads      = 3;
+  uint32 frequency_mhz = 4; // Base frequency
+  string arch         = 5;  // "x86_64", "aarch64"
+  repeated string flags = 6; // CPU flags of interest: "aes", "avx2", "sev", etc.
+}
+
+message MemoryInfo {
+  uint64 total_mb = 1;
+  repeated MemoryModule modules = 2;
+}
+
+message MemoryModule {
+  string locator   = 1; // "DIMM_A1"
+  uint32 size_mb   = 2;
+  string type      = 3; // "DDR4", "DDR5"
+  uint32 speed_mhz = 4;
+  string manufacturer = 5;
+}
+
+message DiskInfo {
+  string name        = 1; // "sda", "nvme0n1"
+  string model       = 2;
+  string serial      = 3;
+  uint64 size_gb     = 4;
+  string type        = 5; // "hdd", "ssd_sata", "ssd_nvme"
+  string transport   = 6; // "sata", "nvme", "usb"
+  string firmware    = 7;
+  bool   smart_supported = 8;
+  // SMART/NVMe health data is in health.proto, not here.
+}
+
+message GPUInfo {
+  string model     = 1;
+  uint32 vram_mb   = 2;
+  string driver    = 3;
+  string pci_slot  = 4;
+}
+
+message BIOSInfo {
+  string vendor  = 1;
+  string version = 2;
+  string date    = 3; // "04/14/2024"
+  // fwupd update availability is in health.proto.
+}
+
+// TPMInfo, OSInfo and NetworkInterface are defined in common.proto and reused here.
+
+message BatteryInfo {
+  bool   present             = 1;
+  uint32 design_capacity_mwh = 2;
+  uint32 full_capacity_mwh   = 3;
+  uint32 health_pct          = 4; // (full / design) * 100
+  uint32 cycle_count         = 5;
+  string status              = 6; // "charging", "discharging", "full", "not-charging"
+  uint32 charge_pct          = 7; // Current charge 0-100
+}
+
+message USBDevice {
+  string vendor_id  = 1;
+  string product_id = 2;
+  string name       = 3;
+  string class      = 4; // "mass-storage", "hid", "printer", "hub", etc.
+  string serial     = 5;
+  string port       = 6; // USB bus/port path
+}
+
+// ---------------------------------------------------------------------------
+// Software
+// ---------------------------------------------------------------------------
+
+message SoftwareInventory {
+  OSInfo os = 1;
+
+  // Installed packages.
+  repeated Package packages = 2;
+
+  // For delta reports: packages added since last report.
+  repeated Package packages_added = 3;
+
+  // For delta reports: packages removed since last report.
+  repeated Package packages_removed = 4;
+
+  // Systemd services.
+  repeated SystemdService services = 5;
+
+  // Flatpaks / Snaps if present.
+  repeated Package flatpaks = 6;
+  repeated Package snaps    = 7;
+}
+
+message Package {
+  string name        = 1;
+  string version     = 2;
+  string arch        = 3;
+  string source      = 4; // "apt", "dnf", "nix", "flatpak", "snap"
+  uint64 installed_size_kb = 5;
+}
+
+message SystemdService {
+  string name          = 1; // "chronyd.service"
+  string load_state    = 2; // "loaded", "not-found"
+  string active_state  = 3; // "active", "inactive", "failed"
+  string sub_state     = 4; // "running", "dead", "exited"
+  bool   enabled       = 5;
+  string description   = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Network
+// ---------------------------------------------------------------------------
+
+message NetworkInventory {
+  string hostname = 1;
+
+  repeated NetworkInterface interfaces = 2;
+
+  // DNS config.
+  repeated string dns_servers   = 3;
+  string          dns_domain    = 4;
+  repeated string dns_search    = 5;
+
+  // Default route.
+  string default_gateway   = 6;
+  string default_interface = 7;
+
+  // Proxy configuration (if any).
+  string http_proxy  = 8;
+  string https_proxy = 9;
+  string no_proxy    = 10;
+
+  // Listening ports.
+  repeated ListeningPort listening_ports = 11;
+}
+
+message ListeningPort {
+  string protocol = 1; // "tcp", "udp", "tcp6", "udp6"
+  string address  = 2; // "0.0.0.0" or "127.0.0.1" or "::"
+  uint32 port     = 3;
+  string process  = 4; // "sshd", "chronyd"
+  uint32 pid      = 5;
+}

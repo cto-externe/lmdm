@@ -1,0 +1,89 @@
+// LMDM — Linux MDM
+// Compliance reports: policy/profile conformity checks.
+// Transport: NATS (subject: fleet.agent.{device_id}.compliance)
+// Frequency: every 1h.
+
+syntax = "proto3";
+
+package lmdm.v1;
+
+option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+
+import "google/protobuf/timestamp.proto";
+import "lmdm/v1/common.proto";
+
+// ---------------------------------------------------------------------------
+// Compliance Report (Agent → Server via NATS)
+// Subject: fleet.agent.{device_id}.compliance
+// ---------------------------------------------------------------------------
+
+message ComplianceReport {
+  DeviceID device_id = 1;
+
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Overall status.
+  ComplianceStatus overall_status = 3;
+
+  // Per-profile compliance.
+  repeated ProfileCompliance profiles = 4;
+
+  // Summary counters.
+  uint32 total_checks     = 5;
+  uint32 passed_checks    = 6;
+  uint32 failed_checks    = 7;
+  uint32 unknown_checks   = 8;
+}
+
+message ProfileCompliance {
+  ProfileID profile_id = 1;
+  string    profile_name = 2;
+  string    profile_version = 3;
+
+  ComplianceStatus status = 4;
+
+  repeated PolicyCompliance policies = 5;
+}
+
+message PolicyCompliance {
+  string name   = 1; // Policy name within the profile, e.g. "ntp-chrony", "firewall-nftables".
+  ComplianceStatus status = 2;
+
+  // Individual check results within this policy.
+  repeated ComplianceCheck checks = 3;
+}
+
+message ComplianceCheck {
+  string name        = 1; // What was checked, e.g. "chrony installed", "nftables.service enabled".
+  bool   passed      = 2;
+  string expected     = 3; // What was expected, e.g. "package chrony present"
+  string actual       = 4; // What was found, e.g. "package chrony not found"
+  string remediation  = 5; // What the agent would do to fix it, e.g. "apt install chrony"
+  
+  // Whether drift was detected (was compliant before, now isn't).
+  bool   drift_detected = 6;
+  google.protobuf.Timestamp last_compliant_at = 7;
+}
+
+// ---------------------------------------------------------------------------
+// Nftables Compliance (detailed)
+// ---------------------------------------------------------------------------
+
+message NftablesCompliance {
+  // Files managed by LMDM in /etc/nftables.d/.
+  repeated NftablesFileCheck managed_files = 1;
+
+  // Whether the loaded ruleset matches the files on disk.
+  bool ruleset_matches_files = 2;
+
+  // Unexpected files in /etc/nftables.d/ (not managed by LMDM, not in 50-custom.nft).
+  repeated string unexpected_files = 3;
+}
+
+message NftablesFileCheck {
+  string filename        = 1; // e.g. "10-fleet-hardening.nft"
+  bool   present_on_disk = 2;
+  bool   content_matches = 3; // Content matches expected policy.
+  string expected_hash   = 4; // BLAKE3 hash of expected content.
+  string actual_hash     = 5; // BLAKE3 hash of actual file.
+}

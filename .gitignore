@@ -24,3 +24,6 @@ Thumbs.db
 
 # Docker / data locaux
 .data/
+
+# Git worktrees
+.worktrees/

@@ -70,3 +70,11 @@ make test-unit         # rapide, pas de Docker
 make test-integration  # utilise testcontainers
 make lint              # golangci-lint + buf lint
 ```
+
+## Développement
+
+Voir [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+## Plans
+
+Les plans d'implémentation sont dans [docs/superpowers/plans/](docs/superpowers/plans/).

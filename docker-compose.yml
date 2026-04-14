@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lmdm-postgres
+    environment:
+      POSTGRES_USER: lmdm
+      POSTGRES_PASSWORD: lmdm
+      POSTGRES_DB: lmdm
+    ports:
+      - "5432:5432"
+    volumes:
+      - lmdm-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lmdm -d lmdm"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: lmdm-nats
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - lmdm-nats:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  garage:
+    image: dxflrs/garage:v1.0.1
+    container_name: lmdm-garage
+    ports:
+      - "3900:3900"
+      - "3901:3901"
+    volumes:
+      - lmdm-garage-meta:/var/lib/garage/meta
+      - lmdm-garage-data:/var/lib/garage/data
+      - ./deploy/garage.toml:/etc/garage.toml:ro
+    depends_on: []
+
+volumes:
+  lmdm-postgres:
+  lmdm-nats:
+  lmdm-garage-meta:
+  lmdm-garage-data:

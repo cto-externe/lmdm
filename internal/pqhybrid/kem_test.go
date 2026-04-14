@@ -34,3 +34,61 @@ func TestGenerateKEMKeyIsRandom(t *testing.T) {
 		t.Fatal("two generations must not produce identical ML-KEM public keys")
 	}
 }
+
+func TestEncapsulateDecapsulateRoundTrip(t *testing.T) {
+	priv, pub, err := GenerateKEMKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, sharedA, err := Encapsulate(pub)
+	if err != nil {
+		t.Fatalf("Encapsulate: %v", err)
+	}
+	if len(sharedA) != SharedSecretSize {
+		t.Fatalf("shared secret size = %d, want %d", len(sharedA), SharedSecretSize)
+	}
+	sharedB, err := Decapsulate(priv, ct)
+	if err != nil {
+		t.Fatalf("Decapsulate: %v", err)
+	}
+	if !bytesEqual(sharedA, sharedB) {
+		t.Fatal("encapsulation and decapsulation must yield identical shared secret")
+	}
+}
+
+func TestDecapsulateRejectsTamperedCiphertext(t *testing.T) {
+	priv, pub, err := GenerateKEMKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, sharedA, err := Encapsulate(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := &HybridCiphertext{
+		X25519EphemeralPub: append([]byte{}, ct.X25519EphemeralPub...),
+		MLKEMCiphertext:    append([]byte{}, ct.MLKEMCiphertext...),
+	}
+	tampered.X25519EphemeralPub[0] ^= 0x01
+
+	sharedB, err := Decapsulate(priv, tampered)
+	if err != nil {
+		return // acceptable: X25519 point invalid or shared derivation fails
+	}
+	if bytesEqual(sharedA, sharedB) {
+		t.Fatal("tampered X25519 ephemeral must not yield the same shared secret")
+	}
+}
+
+func TestDecapsulateRejectsBadLengths(t *testing.T) {
+	priv, _, err := GenerateKEMKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decapsulate(priv, &HybridCiphertext{}); err == nil {
+		t.Fatal("Decapsulate should reject empty ciphertext")
+	}
+	if _, err := Decapsulate(priv, &HybridCiphertext{X25519EphemeralPub: []byte{1, 2}}); err == nil {
+		t.Fatal("Decapsulate should reject bad X25519 length")
+	}
+}

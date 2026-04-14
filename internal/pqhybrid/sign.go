@@ -59,3 +59,49 @@ func GenerateSigningKey(r io.Reader) (*SigningPrivateKey, *SigningPublicKey, err
 	pub := &SigningPublicKey{Ed25519: edPub, MLDSA: mlPubBytes}
 	return priv, pub, nil
 }
+
+// Sign produces a hybrid signature over msg using both the Ed25519 and
+// ML-DSA-65 private keys. Both signatures cover the same payload.
+func Sign(priv *SigningPrivateKey, msg []byte) (*HybridSignature, error) {
+	if priv == nil || len(priv.Ed25519) == 0 || len(priv.MLDSA) == 0 {
+		return nil, errors.New("pqhybrid: incomplete signing private key")
+	}
+
+	edSig := ed25519.Sign(priv.Ed25519, msg)
+
+	var mlKey mldsa65.PrivateKey
+	if err := mlKey.UnmarshalBinary(priv.MLDSA); err != nil {
+		return nil, fmt.Errorf("pqhybrid: ml-dsa unmarshal priv: %w", err)
+	}
+	mlSig := make([]byte, mldsa65.SignatureSize)
+	if err := mldsa65.SignTo(&mlKey, msg, nil, false, mlSig); err != nil {
+		return nil, fmt.Errorf("pqhybrid: ml-dsa sign: %w", err)
+	}
+
+	return &HybridSignature{Ed25519: edSig, MLDSA: mlSig}, nil
+}
+
+// Verify validates both signature components against the hybrid public key.
+// It returns nil on success and an error describing the first failure
+// otherwise. Both components MUST validate for Verify to succeed.
+func Verify(pub *SigningPublicKey, msg []byte, sig *HybridSignature) error {
+	if pub == nil || len(pub.Ed25519) == 0 || len(pub.MLDSA) == 0 {
+		return errors.New("pqhybrid: incomplete signing public key")
+	}
+	if sig == nil || len(sig.Ed25519) == 0 || len(sig.MLDSA) == 0 {
+		return errors.New("pqhybrid: incomplete hybrid signature")
+	}
+
+	if !ed25519.Verify(pub.Ed25519, msg, sig.Ed25519) {
+		return errors.New("pqhybrid: ed25519 signature invalid")
+	}
+
+	var mlPub mldsa65.PublicKey
+	if err := mlPub.UnmarshalBinary(pub.MLDSA); err != nil {
+		return fmt.Errorf("pqhybrid: ml-dsa unmarshal pub: %w", err)
+	}
+	if !mldsa65.Verify(&mlPub, msg, nil, sig.MLDSA) {
+		return errors.New("pqhybrid: ml-dsa signature invalid")
+	}
+	return nil
+}

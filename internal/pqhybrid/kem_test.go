@@ -92,3 +92,21 @@ func TestDecapsulateRejectsBadLengths(t *testing.T) {
 		t.Fatal("Decapsulate should reject bad X25519 length")
 	}
 }
+
+func FuzzDecapsulateNeverPanics(f *testing.F) {
+	priv, pub, err := GenerateKEMKey(rand.Reader)
+	if err != nil {
+		f.Fatal(err)
+	}
+	ct, _, err := Encapsulate(pub)
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add(ct.X25519EphemeralPub, ct.MLKEMCiphertext)
+	f.Add([]byte{}, []byte{})
+	f.Add(make([]byte, 32), make([]byte, 1088))
+
+	f.Fuzz(func(t *testing.T, x, ml []byte) {
+		_, _ = Decapsulate(priv, &HybridCiphertext{X25519EphemeralPub: x, MLKEMCiphertext: ml})
+	})
+}

@@ -124,3 +124,23 @@ func TestVerifyRejectsEmptySignatureComponents(t *testing.T) {
 		t.Fatal("Verify should reject signature missing ML-DSA component")
 	}
 }
+
+func FuzzVerifyRejectsArbitraryInputs(f *testing.F) {
+	priv, pub, err := GenerateSigningKey(rand.Reader)
+	if err != nil {
+		f.Fatal(err)
+	}
+	valid, err := Sign(priv, []byte("seed"))
+	if err != nil {
+		f.Fatal(err)
+	}
+	f.Add([]byte("seed"), valid.Ed25519, valid.MLDSA)
+	f.Add([]byte{}, []byte{}, []byte{})
+	f.Add([]byte("other"), valid.Ed25519, valid.MLDSA)
+
+	f.Fuzz(func(t *testing.T, msg, edSig, mlSig []byte) {
+		sig := &HybridSignature{Ed25519: edSig, MLDSA: mlSig}
+		// Must not panic for any input; return value is not asserted.
+		_ = Verify(pub, msg, sig)
+	})
+}

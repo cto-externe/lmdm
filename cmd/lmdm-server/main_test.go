@@ -18,6 +18,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/agentbus"
+	"github.com/cto-externe/lmdm/internal/agentenroll"
+	"github.com/cto-externe/lmdm/internal/agentrunner"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
@@ -25,6 +28,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
+	"github.com/cto-externe/lmdm/internal/statusingester"
 	"github.com/cto-externe/lmdm/internal/tokens"
 )
 
@@ -274,4 +278,133 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 	if len(resp.GetAgentCertificate()) == 0 {
 		t.Fatal("certificate missing")
 	}
+}
+
+func TestIntegrationHeartbeatLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	pg, err := postgres.Run(ctx,
+		"postgres:16-alpine",
+		postgres.WithDatabase("lmdm"),
+		postgres.WithUsername("lmdm"),
+		postgres.WithPassword("lmdm"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("5432/tcp").WithStartupTimeout(30*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, _ := pg.ConnectionString(ctx, "sslmode=disable")
+	if err := db.MigrateUp(dsn); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	natsReq := testcontainers.ContainerRequest{
+		Image:        "nats:2.10-alpine",
+		ExposedPorts: []string{"4222/tcp"},
+		Cmd:          []string{"-js"},
+		WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(30 * time.Second),
+	}
+	natsC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: natsReq, Started: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = natsC.Terminate(ctx) })
+	natsHost, _ := natsC.Host(ctx)
+	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
+	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
+
+	bus, err := natsbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+	keyPath := t.TempDir() + "/server.key"
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	plaintext, _, err := tokenRepo.Create(ctx, tokens.CreateRequest{
+		TenantID:    tenantID,
+		Description: "e2e hb",
+		MaxUses:     1,
+		TTL:         time.Hour,
+		CreatedBy:   "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httpAddr := freeAddr(t)
+	grpcAddr := freeAddr(t)
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
+
+	ingester := statusingester.New(bus, deviceRepo)
+	if err := ingester.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer ingester.Stop()
+
+	errs := srv.Start()
+	defer srv.Shutdown(5 * time.Second)
+	select {
+	case e := <-errs:
+		t.Fatalf("server failed: %v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
+	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, agentPub, &lmdmv1.HardwareFingerprint{
+		Hostname: "PC-HB-E2E",
+	})
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+
+	agentBus, err := agentbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agentBus.Close()
+
+	runner := agentrunner.New(agentBus, res.DeviceID, "0.1.0-e2e", 250*time.Millisecond)
+	runCtx, runCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer runCancel()
+	go func() { _ = runner.Run(runCtx) }()
+
+	deviceUUID := uuid.MustParse(res.DeviceID)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		got, err := deviceRepo.FindByID(ctx, tenantID, deviceUUID)
+		if err == nil && got.LastSeen != nil && got.AgentVersion != nil && *got.AgentVersion == "0.1.0-e2e" {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("device.last_seen never reflected the heartbeat within 5s")
 }

@@ -532,18 +532,27 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 	defer runCancel()
 	go func() { _ = runner.Run(runCtx) }()
 
-	// Poll DB until we see a row in device_inventory for this device.
+	// Poll DB until we see a row in device_inventory for this device AND
+	// the JSONB payload contains the hostname we reported. This catches
+	// silent protojson marshaling bugs that would leave the row in place
+	// with an empty {} payload.
 	deviceUUID := uuid.MustParse(res.DeviceID)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		var id uuid.UUID
+		var hostname string
+		var schemaVersion int
 		err := pool.QueryRow(ctx,
-			`SELECT device_id FROM device_inventory WHERE device_id = $1`, deviceUUID,
-		).Scan(&id)
-		if err == nil && id == deviceUUID {
+			`SELECT report_json->'network'->>'hostname',
+			        (report_json->>'schema_version')::int
+			   FROM device_inventory WHERE device_id = $1`, deviceUUID,
+		).Scan(&hostname, &schemaVersion)
+		// Hostname must be non-empty (came from os.Hostname() on the test
+		// host) and schema_version must be 1 (proves protojson populated
+		// it, not an empty {}).
+		if err == nil && hostname != "" && schemaVersion == 1 {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal("device_inventory was not populated within 5s")
+	t.Fatal("device_inventory JSONB was not populated correctly within 5s")
 }

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -106,7 +107,10 @@ func (i *Ingester) upsert(ctx context.Context, id uuid.UUID, raw []byte, rep *lm
 	if err := pool.QueryRow(ctx,
 		`SELECT tenant_id FROM devices WHERE id = $1`, id,
 	).Scan(&tenantID); err != nil {
-		return devices.ErrNotFound
+		if errors.Is(err, pgx.ErrNoRows) {
+			return devices.ErrNotFound
+		}
+		return fmt.Errorf("inventoryingester: tenant lookup: %w", err)
 	}
 
 	jsonPayload, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(rep)

@@ -68,7 +68,7 @@ func collectHardware() *lmdmv1.HardwareInventory {
 	}
 
 	var disks []*lmdmv1.DiskInfo
-	if out, err := exec.Command("lsblk", "-J", "-o",
+	if out, err := exec.Command("lsblk", "-J", "-b", "-o",
 		"NAME,MODEL,SERIAL,SIZE,TYPE,TRAN,ROTA").Output(); err == nil {
 		if parsed, err := parseLsblkJSON(out); err == nil {
 			disks = parsed

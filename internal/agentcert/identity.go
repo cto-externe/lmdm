@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package agentcert persists the agent identity bundle: the SignedAgentCert
 // returned by enrollment plus the server's hybrid signing pubkey (used to
 // verify future server messages).

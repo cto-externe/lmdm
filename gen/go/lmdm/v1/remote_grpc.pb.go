@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Remote access: terminal and desktop streaming.
 // Transport: gRPC bidirectional streaming (mTLS PQ hybrid).

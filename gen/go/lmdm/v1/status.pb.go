@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Agent status and heartbeat messages.
 // Transport: NATS (subject: fleet.agent.{agent_id}.status)

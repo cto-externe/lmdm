@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package pqhybrid implements hybrid post-quantum cryptographic primitives
 // used by LMDM: signatures (Ed25519 + ML-DSA-65), key encapsulation
 // (X25519 + ML-KEM-768), and BLAKE3 hashing.

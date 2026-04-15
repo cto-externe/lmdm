@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package server wires together the HTTP and gRPC listeners with a clean
 // shutdown path.
 package server

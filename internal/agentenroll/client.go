@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package agentenroll wraps the gRPC EnrollmentService.Enroll call into a
 // transport-only helper. It does not persist anything — the caller decides
 // where to store the returned cert and server pubkey.

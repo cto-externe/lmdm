@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package agentstatus collects local system metrics from /proc and syscalls
 // to build a Heartbeat proto. Linux-only at MVP.
 package agentstatus

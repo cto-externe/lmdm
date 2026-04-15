@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Command lmdm-agent is the LMDM endpoint binary. Two subcommands:
 //
 //	enroll  one-shot enrollment using a token; persists key + cert

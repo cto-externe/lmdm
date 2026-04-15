@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Health monitoring messages: disk SMART/NVMe, battery, firmware, temperatures.
 // Transport: NATS (subject: fleet.agent.{device_id}.health)

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package devices persists managed devices (workstations, printers, etc.).
 // At the MVP only workstation rows are inserted at enrollment time.
 package devices

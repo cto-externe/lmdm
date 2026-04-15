@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Command lmdm-token issues an enrollment token from the command line.
 // Intended for early bootstrap and admin-side scripts before the WebUI exists.
 package main

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package config loads runtime configuration from environment variables.
 // For local development, sensible defaults point at the docker-compose stack.
 package config

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package tokens generates and validates enrollment tokens. Plaintext tokens
 // are shown once to an admin and never persisted; the database stores only
 // the SHA-256 hash so a DB compromise does not leak usable credentials.

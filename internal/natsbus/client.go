@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package natsbus wraps the NATS + JetStream setup used by the LMDM server.
 // Streams and their retention policies are declared here so one place
 // documents the messaging topology.

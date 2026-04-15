@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package agentbus is the agent-side NATS connection wrapper. Publish-only
 // at this stage; the agent never creates JetStream streams (the server does
 // that on startup).

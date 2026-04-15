@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Agent identity certificate: a signed proto message that proves an agent
 // was enrolled by the server. Used in place of X.509 (Go's PQ-X.509 story

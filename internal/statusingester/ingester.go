@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package statusingester subscribes to the JetStream STATUS stream and
 // updates devices.last_seen + agent_version when a Heartbeat arrives.
 package statusingester

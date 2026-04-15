@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package agentkey loads or generates the agent's hybrid signing keypair
 // and persists it to disk. Mirrors the server-side keystore but is owned
 // by the agent. File mode 0600 is enforced.

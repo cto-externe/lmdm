@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package objectstore wraps the S3-compatible client used to talk to Garage.
 // Keeping this in one place avoids scattering AWS SDK calls across the
 // codebase and makes future backend swaps trivial.

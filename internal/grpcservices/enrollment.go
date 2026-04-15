@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package grpcservices implements the gRPC service handlers for LMDM.
 // Currently only EnrollmentService is implemented.
 package grpcservices

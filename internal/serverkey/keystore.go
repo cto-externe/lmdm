@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package serverkey loads or generates the server's hybrid signing keypair
 // and persists it to disk. The key is generated once on first boot and
 // reused thereafter. File mode 0600 is enforced.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package db wraps the pgx connection pool used by the LMDM server.
 // It is intentionally minimal: higher-level persistence lives in feature
 // packages that will build on this connection.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Inventory messages: hardware and software inventory.
 // Transport: NATS

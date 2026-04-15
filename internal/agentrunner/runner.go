@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package agentrunner orchestrates the heartbeat loop: collect snapshot →
 // build Heartbeat proto → publish on NATS subject. The Publisher interface
 // is small enough to mock in unit tests; the production wiring uses

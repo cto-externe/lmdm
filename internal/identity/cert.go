@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // Package identity signs and verifies the SignedAgentCert envelope used to
 // authenticate enrolled agents. Internally, an AgentIdentityCert is marshaled
 // to canonical bytes and signed with the server's hybrid signing key.

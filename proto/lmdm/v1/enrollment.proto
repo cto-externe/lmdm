@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Enrollment service: agent registration and certificate issuance.
 // Transport: gRPC with TLS (PQ hybrid handshake).

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
 // LMDM — Linux MDM
 // Printer discovery, inventory, and consumable monitoring.
 // Transport: NATS (subject: fleet.agent.{device_id}.printers)

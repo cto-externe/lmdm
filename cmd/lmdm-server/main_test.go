@@ -13,9 +13,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	"github.com/lmdm/lmdm/internal/db"
-	"github.com/lmdm/lmdm/internal/natsbus"
-	"github.com/lmdm/lmdm/internal/server"
+	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/natsbus"
+	"github.com/cto-externe/lmdm/internal/server"
 )
 
 func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
@@ -84,7 +84,7 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 	// Task 20 covers the manual smoke test including Garage.
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", server.NewHealthHandler(map[string]server.HealthChecker{
-		"db":   server.HealthCheckerFunc(func(ctx context.Context) error { return pool.Ping(ctx) }),
+		"db": server.HealthCheckerFunc(func(ctx context.Context) error { return pool.Ping(ctx) }),
 		"nats": server.HealthCheckerFunc(func(ctx context.Context) error {
 			_, err := bus.ListStreamNames(ctx)
 			return err

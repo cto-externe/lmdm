@@ -2,8 +2,6 @@
 
 Outil souverain de gestion de parc Linux pour collectivités et administrations.
 
-Voir `ARCHITECTURE_SPEC_V1.md` pour la spécification complète.
-
 ## Prérequis
 
 - Go 1.24+

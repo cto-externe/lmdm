@@ -21,7 +21,7 @@ jobs:
       - name: buf lint
         run: buf lint
       - name: buf breaking
-        run: buf breaking --against "https://github.com/lmdm/lmdm.git#branch=main"
+        run: buf breaking --against "https://github.com/cto-externe/lmdm.git#branch=main"
         continue-on-error: true
 
   build:

@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package lmdm.v1;
 
-option go_package = "github.com/lmdm/lmdm/gen/go/lmdm/v1;lmdmv1";
+option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
 
 // ---------------------------------------------------------------------------
 // Identifiers

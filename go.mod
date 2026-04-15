@@ -1,4 +1,4 @@
-module github.com/lmdm/lmdm
+module github.com/cto-externe/lmdm
 
 go 1.25.0
 

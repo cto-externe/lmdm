@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lmdm/lmdm/internal/config"
-	"github.com/lmdm/lmdm/internal/db"
-	"github.com/lmdm/lmdm/internal/natsbus"
-	"github.com/lmdm/lmdm/internal/objectstore"
-	"github.com/lmdm/lmdm/internal/server"
+	"github.com/cto-externe/lmdm/internal/config"
+	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/natsbus"
+	"github.com/cto-externe/lmdm/internal/objectstore"
+	"github.com/cto-externe/lmdm/internal/server"
 )
 
 func main() {
@@ -69,7 +69,7 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", server.NewHealthHandler(map[string]server.HealthChecker{
-		"db":   server.HealthCheckerFunc(func(ctx context.Context) error { return pool.Ping(ctx) }),
+		"db": server.HealthCheckerFunc(func(ctx context.Context) error { return pool.Ping(ctx) }),
 		"nats": server.HealthCheckerFunc(func(ctx context.Context) error {
 			_, err := bus.ListStreamNames(ctx)
 			return err

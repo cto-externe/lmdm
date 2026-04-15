@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -57,7 +58,7 @@ func (r *Repository) FindByID(ctx context.Context, tenantID, id uuid.UUID) (*Dev
 	const q = `
 		SELECT id, tenant_id, device_type, hostname, serial_number, manufacturer, model,
 		       site_id, status, last_seen, enrolled_at, enrolled_via_token,
-		       agent_pubkey_ed25519, agent_pubkey_mldsa, cert_serial
+		       agent_pubkey_ed25519, agent_pubkey_mldsa, cert_serial, agent_version
 		  FROM devices WHERE id = $1
 	`
 	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
@@ -66,7 +67,7 @@ func (r *Repository) FindByID(ctx context.Context, tenantID, id uuid.UUID) (*Dev
 			&d.ID, &d.TenantID, &devType, &d.Hostname,
 			&d.SerialNumber, &d.Manufacturer, &d.Model,
 			&d.SiteID, &devStatus, &d.LastSeen, &d.EnrolledAt, &d.EnrolledViaToken,
-			&d.AgentPubkeyEd25519, &d.AgentPubkeyMLDSA, &d.CertSerial,
+			&d.AgentPubkeyEd25519, &d.AgentPubkeyMLDSA, &d.CertSerial, &d.AgentVersion,
 		)
 		d.Type = Type(devType)
 		d.Status = Status(devStatus)
@@ -79,6 +80,33 @@ func (r *Repository) FindByID(ctx context.Context, tenantID, id uuid.UUID) (*Dev
 		return nil, fmt.Errorf("devices: find: %w", err)
 	}
 	return &d, nil
+}
+
+// UpdateLastSeen records that the agent for `id` is alive at `ts` running
+// `agentVersion`. Used by the heartbeat ingester. Returns ErrNotFound if the
+// device row doesn't exist for the tenant.
+func (r *Repository) UpdateLastSeen(ctx context.Context, tenantID, id uuid.UUID, agentVersion string, ts time.Time) error {
+	const q = `
+		UPDATE devices
+		   SET last_seen = $1, agent_version = $2
+		 WHERE id = $3 AND tenant_id = $4
+	`
+	var rows int64
+	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		ct, err := tx.Exec(ctx, q, ts, agentVersion, id, tenantID)
+		if err != nil {
+			return fmt.Errorf("devices: update last_seen: %w", err)
+		}
+		rows = ct.RowsAffected()
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *Repository) withTenant(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {

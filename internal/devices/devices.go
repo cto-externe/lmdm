@@ -45,4 +45,5 @@ type Device struct {
 	AgentPubkeyEd25519  []byte
 	AgentPubkeyMLDSA    []byte
 	CertSerial          *string
+	AgentVersion        *string
 }

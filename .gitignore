@@ -28,6 +28,9 @@ Thumbs.db
 # Git worktrees
 .worktrees/
 
+# Claude Code local settings (IDE-specific, per-user)
+.claude/
+
 # Local-only working notes (architecture spec, plans, dev guide)
 # Not for distribution — kept on disk per the author's preference.
 /ARCHITECTURE_SPEC_V1.md

@@ -75,10 +75,7 @@ func run() error {
 			return err
 		}),
 		"s3": server.HealthCheckerFunc(func(ctx context.Context) error {
-			// Light-touch check: presign a never-accessed key. Fails only on
-			// config-level errors, not on missing object.
-			_, err := store.PresignGet(ctx, "healthz-probe", time.Minute)
-			return err
+			return store.Ping(ctx)
 		}),
 	}))
 

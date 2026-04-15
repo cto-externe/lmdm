@@ -93,3 +93,16 @@ func (c *Client) PresignGet(ctx context.Context, key string, ttl time.Duration) 
 	}
 	return req.URL, nil
 }
+
+// Ping verifies the configured bucket is reachable and accessible. Used by
+// healthchecks: presigning is a local-only operation that doesn't actually
+// touch the network, so we use HeadBucket instead.
+func (c *Client) Ping(ctx context.Context) error {
+	_, err := c.s3.HeadBucket(ctx, &s3.HeadBucketInput{
+		Bucket: &c.bucket,
+	})
+	if err != nil {
+		return fmt.Errorf("objectstore: head bucket %s: %w", c.bucket, err)
+	}
+	return nil
+}

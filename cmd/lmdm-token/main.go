@@ -39,6 +39,9 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	if err := db.MigrateUp(cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
 	tenantID, err := uuid.Parse(*tenant)
 	if err != nil {
 		return fmt.Errorf("invalid tenant uuid: %w", err)

@@ -129,9 +129,9 @@ func (r *Repository) ValidateAndConsume(ctx context.Context, plaintext string) (
 
 // Revoke marks a token as revoked. Idempotent.
 func (r *Repository) Revoke(ctx context.Context, tenantID, tokenID uuid.UUID) error {
-	const q = `UPDATE enrollment_tokens SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL`
+	const q = `UPDATE enrollment_tokens SET revoked_at = NOW() WHERE id = $1 AND tenant_id = $2 AND revoked_at IS NULL`
 	return r.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, q, tokenID)
+		_, err := tx.Exec(ctx, q, tokenID, tenantID)
 		if err != nil {
 			return fmt.Errorf("tokens: revoke: %w", err)
 		}

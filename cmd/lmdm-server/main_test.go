@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"io"
 	"net"
@@ -9,13 +10,22 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
+	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/devices"
+	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/natsbus"
+	"github.com/cto-externe/lmdm/internal/pqhybrid"
 	"github.com/cto-externe/lmdm/internal/server"
+	"github.com/cto-externe/lmdm/internal/serverkey"
+	"github.com/cto-externe/lmdm/internal/tokens"
 )
 
 func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
@@ -144,4 +154,124 @@ func freeAddr(t *testing.T) string {
 	addr := l.Addr().String()
 	_ = l.Close()
 	return addr
+}
+
+func TestIntegrationEnrollEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	// Bring up postgres + nats.
+	pg, err := postgres.Run(ctx,
+		"postgres:16-alpine",
+		postgres.WithDatabase("lmdm"),
+		postgres.WithUsername("lmdm"),
+		postgres.WithPassword("lmdm"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("5432/tcp").WithStartupTimeout(30*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, _ := pg.ConnectionString(ctx, "sslmode=disable")
+
+	natsReq := testcontainers.ContainerRequest{
+		Image:        "nats:2.10-alpine",
+		ExposedPorts: []string{"4222/tcp"},
+		Cmd:          []string{"-js"},
+		WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(30 * time.Second),
+	}
+	natsC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: natsReq, Started: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = natsC.Terminate(ctx) })
+	natsHost, _ := natsC.Host(ctx)
+	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
+	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
+
+	// Bootstrap server resources.
+	if err := db.MigrateUp(dsn); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	bus, err := natsbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+	keyPath := t.TempDir() + "/server.key"
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a token for the test.
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	plaintext, _, err := tokenRepo.Create(ctx, tokens.CreateRequest{
+		TenantID:    tenantID,
+		Description: "e2e enroll",
+		MaxUses:     1,
+		TTL:         time.Hour,
+		CreatedBy:   "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build server with EnrollmentService registered.
+	httpAddr := freeAddr(t)
+	grpcAddr := freeAddr(t)
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
+	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), svc)
+
+	errs := srv.Start()
+	defer srv.Shutdown(5 * time.Second)
+	select {
+	case e := <-errs:
+		t.Fatalf("server failed: %v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Agent client.
+	conn, err := grpc.NewClient(grpcAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
+	resp, err := lmdmv1.NewEnrollmentServiceClient(conn).Enroll(ctx, &lmdmv1.EnrollRequest{
+		EnrollmentToken: plaintext,
+		AgentPublicKey:  &lmdmv1.HybridPublicKey{Ed25519: agentPub.Ed25519, MlDsa: agentPub.MLDSA},
+		Hardware:        &lmdmv1.HardwareFingerprint{Hostname: "PC-E2E"},
+		AgentVersion:    "0.1.0",
+	})
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+	if resp.GetDeviceId().GetId() == "" {
+		t.Fatal("device_id missing")
+	}
+	if len(resp.GetAgentCertificate()) == 0 {
+		t.Fatal("certificate missing")
+	}
 }

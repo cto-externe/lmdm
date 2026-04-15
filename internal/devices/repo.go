@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -80,33 +79,6 @@ func (r *Repository) FindByID(ctx context.Context, tenantID, id uuid.UUID) (*Dev
 		return nil, fmt.Errorf("devices: find: %w", err)
 	}
 	return &d, nil
-}
-
-// UpdateLastSeen records that the agent for `id` is alive at `ts` running
-// `agentVersion`. Used by the heartbeat ingester. Returns ErrNotFound if the
-// device row doesn't exist for the tenant.
-func (r *Repository) UpdateLastSeen(ctx context.Context, tenantID, id uuid.UUID, agentVersion string, ts time.Time) error {
-	const q = `
-		UPDATE devices
-		   SET last_seen = $1, agent_version = $2
-		 WHERE id = $3 AND tenant_id = $4
-	`
-	var rows int64
-	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
-		ct, err := tx.Exec(ctx, q, ts, agentVersion, id, tenantID)
-		if err != nil {
-			return fmt.Errorf("devices: update last_seen: %w", err)
-		}
-		rows = ct.RowsAffected()
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 // Pool returns the underlying connection pool for callers that need to run

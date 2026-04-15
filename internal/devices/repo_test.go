@@ -201,40 +201,6 @@ func TestIntegrationRLSIsolatesDevices(t *testing.T) {
 	}
 }
 
-func TestIntegrationUpdateLastSeen(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test requires Docker")
-	}
-	r, cleanup := setupRepo(t)
-	defer cleanup()
-
-	tenantID := uuid.MustParse(defaultTenant)
-	d := &Device{
-		ID:                 uuid.New(),
-		TenantID:           tenantID,
-		Type:               TypeWorkstation,
-		Hostname:           "PC-LS",
-		AgentPubkeyEd25519: []byte("ed-ls"),
-		AgentPubkeyMLDSA:   []byte("ml-ls"),
-	}
-	if err := r.Insert(context.Background(), d); err != nil {
-		t.Fatal(err)
-	}
-
-	now := time.Now().UTC().Truncate(time.Second)
-	if err := r.UpdateLastSeen(context.Background(), tenantID, d.ID, "0.1.0-test", now); err != nil {
-		t.Fatalf("UpdateLastSeen: %v", err)
-	}
-
-	got, err := r.FindByID(context.Background(), tenantID, d.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.LastSeen == nil || !got.LastSeen.Equal(now) {
-		t.Errorf("LastSeen = %v, want %v", got.LastSeen, now)
-	}
-}
-
 func replaceUserDevices(dsn, user, password string) string {
 	const scheme = "postgres://"
 	if len(dsn) < len(scheme) || dsn[:len(scheme)] != scheme {

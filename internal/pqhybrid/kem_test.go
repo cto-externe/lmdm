@@ -106,7 +106,7 @@ func FuzzDecapsulateNeverPanics(f *testing.F) {
 	f.Add([]byte{}, []byte{})
 	f.Add(make([]byte, 32), make([]byte, 1088))
 
-	f.Fuzz(func(t *testing.T, x, ml []byte) {
+	f.Fuzz(func(_ *testing.T, x, ml []byte) {
 		_, _ = Decapsulate(priv, &HybridCiphertext{X25519EphemeralPub: x, MLKEMCiphertext: ml})
 	})
 }

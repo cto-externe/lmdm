@@ -87,7 +87,7 @@ func readMemInfo(s *Snapshot) error {
 	if err != nil {
 		return fmt.Errorf("agentstatus: open /proc/meminfo: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var totalKB, availKB uint64
 	scanner := bufio.NewScanner(f)
@@ -128,13 +128,13 @@ func readDiskUsage(s *Snapshot, path string) error {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return fmt.Errorf("agentstatus: statfs %s: %w", path, err)
 	}
-	totalBytes := st.Blocks * uint64(st.Bsize)
-	freeBytes := st.Bavail * uint64(st.Bsize)
+	totalBytes := st.Blocks * uint64(st.Bsize) //nolint:gosec // syscall.Statfs returns non-negative block size
+	freeBytes := st.Bavail * uint64(st.Bsize)  //nolint:gosec // syscall.Statfs returns non-negative block size
 	usedBytes := totalBytes - freeBytes
 	s.DiskTotalGB = totalBytes / (1 << 30)
 	s.DiskUsedGB = usedBytes / (1 << 30)
 	if totalBytes > 0 {
-		s.DiskUsedPct = uint32((usedBytes * 100) / totalBytes)
+		s.DiskUsedPct = uint32((usedBytes * 100) / totalBytes) //nolint:gosec // result bounded to 0..100 by the prior arithmetic
 	}
 	return nil
 }

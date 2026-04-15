@@ -25,7 +25,7 @@ const (
 // exists, a new keypair is generated and saved. Subsequent calls return the
 // same keys.
 func LoadOrGenerate(path string) (*pqhybrid.SigningPrivateKey, *pqhybrid.SigningPublicKey, error) {
-	if data, err := os.ReadFile(path); err == nil {
+	if data, err := os.ReadFile(path); err == nil { //nolint:gosec // path is an explicit configuration input
 		return parse(data)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, nil, fmt.Errorf("agentkey: read %s: %w", path, err)
@@ -81,7 +81,7 @@ func parse(data []byte) (*pqhybrid.SigningPrivateKey, *pqhybrid.SigningPublicKey
 
 func appendBytes(out, b []byte) []byte {
 	var hdr [4]byte
-	binary.BigEndian.PutUint32(hdr[:], uint32(len(b)))
+	binary.BigEndian.PutUint32(hdr[:], uint32(len(b))) //nolint:gosec // payload lengths are bounded to realistic key/cert sizes far below 4GiB
 	out = append(out, hdr[:]...)
 	out = append(out, b...)
 	return out

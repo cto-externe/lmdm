@@ -6,6 +6,9 @@ import (
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
+	// pgx5 driver registration (blank-import): golang-migrate looks up the
+	// "pgx5://" URL scheme via init-registered drivers, so this package must
+	// be imported for its side effects even though nothing is referenced.
 	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 )

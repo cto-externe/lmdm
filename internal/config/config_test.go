@@ -31,7 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 func TestLoadOverrides(t *testing.T) {
-	env := map[string]string{
+	env := map[string]string{ //nolint:gosec // test fixture, not a real credential
 		"LMDM_HTTP_ADDR":    ":9090",
 		"LMDM_GRPC_ADDR":    ":50052",
 		"LMDM_DATABASE_URL": "postgres://user:pass@host:5432/lmdm",

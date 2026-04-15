@@ -6,12 +6,12 @@ import (
 
 func TestNewClientConfig(t *testing.T) {
 	c, err := New(Config{
-		Endpoint:   "http://localhost:3900",
-		Region:     "garage",
-		Bucket:     "lmdm-packages",
-		AccessKey:  "test",
-		SecretKey:  "test",
-		PathStyle:  true,
+		Endpoint:  "http://localhost:3900",
+		Region:    "garage",
+		Bucket:    "lmdm-packages",
+		AccessKey: "test",
+		SecretKey: "test",
+		PathStyle: true,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

@@ -97,7 +97,7 @@ func TestIntegrationEnrollHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := lmdmv1.NewEnrollmentServiceClient(conn)
 
 	resp, err := client.Enroll(ctx, &lmdmv1.EnrollRequest{

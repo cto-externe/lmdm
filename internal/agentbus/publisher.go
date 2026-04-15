@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -27,7 +27,7 @@ func Connect(_ context.Context, url string) (*Bus, error) {
 		nats.ReconnectWait(2 * time.Second),
 		nats.CustomReconnectDelay(func(n int) time.Duration {
 			base := math.Min(float64(n)*2, 300)
-			jitter := rand.Float64() * base * 0.3
+			jitter := rand.Float64() * base * 0.3 //nolint:gosec // non-crypto jitter for reconnect backoff
 			return time.Duration(base+jitter) * time.Second
 		}),
 		nats.ReconnectBufSize(16 * 1024 * 1024),

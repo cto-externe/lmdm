@@ -110,14 +110,14 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 		t.Fatal(err)
 	}
 	errs := srv.Start()
-	defer srv.Shutdown(5 * time.Second)
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
 
 	// Wait until /healthz is reachable.
 	url := "http://" + httpAddr + "/healthz"
 	deadline := time.Now().Add(10 * time.Second)
 	var resp *http.Response
 	for time.Now().Before(deadline) {
-		resp, err = http.Get(url)
+		resp, err = http.Get(url) //nolint:gosec // test-controlled URL pointing at the freshly-started in-process server
 		if err == nil {
 			break
 		}
@@ -131,7 +131,7 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 	if resp == nil {
 		t.Fatal("healthz never came up")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
@@ -249,7 +249,7 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), svc)
 
 	errs := srv.Start()
-	defer srv.Shutdown(5 * time.Second)
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
 	select {
 	case e := <-errs:
 		t.Fatalf("server failed: %v", e)
@@ -261,7 +261,7 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	resp, err := lmdmv1.NewEnrollmentServiceClient(conn).Enroll(ctx, &lmdmv1.EnrollRequest{
 		EnrollmentToken: plaintext,
@@ -371,7 +371,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 	defer ingester.Stop()
 
 	errs := srv.Start()
-	defer srv.Shutdown(5 * time.Second)
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
 	select {
 	case e := <-errs:
 		t.Fatalf("server failed: %v", e)

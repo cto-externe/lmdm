@@ -38,7 +38,7 @@ type HybridCiphertext struct {
 
 // cryptoRand is the randomness source used by Encapsulate. Tests may
 // override it; in production it is crypto/rand.Reader.
-var cryptoRand io.Reader = rand.Reader
+var cryptoRand = rand.Reader
 
 // GenerateKEMKey generates a hybrid KEM keypair. The X25519 half uses r for
 // randomness; the ML-KEM half uses crypto/rand internally (stdlib API does

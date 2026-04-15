@@ -22,8 +22,8 @@ const (
 
 // Identity is what the agent persists after a successful enrollment.
 type Identity struct {
-	SignedCert []byte                       // raw lmdmv1.SignedAgentCert proto bytes
-	ServerPub  *pqhybrid.SigningPublicKey   // server's signing pubkey, for verifying messages
+	SignedCert []byte                     // raw lmdmv1.SignedAgentCert proto bytes
+	ServerPub  *pqhybrid.SigningPublicKey // server's signing pubkey, for verifying messages
 }
 
 // Save writes the identity to disk with 0600 mode.
@@ -43,7 +43,7 @@ func Save(path string, id *Identity) error {
 // Load reads the identity from disk. Returns os.ErrNotExist (wrapped) if
 // the file is absent — callers can check with `errors.Is(err, os.ErrNotExist)`.
 func Load(path string) (*Identity, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is an explicit configuration input
 	if err != nil {
 		// Return the original error so os.IsNotExist() works correctly
 		return nil, err
@@ -85,7 +85,7 @@ func parse(data []byte) (*Identity, error) {
 
 func appendBytes(out, b []byte) []byte {
 	var hdr [4]byte
-	binary.BigEndian.PutUint32(hdr[:], uint32(len(b)))
+	binary.BigEndian.PutUint32(hdr[:], uint32(len(b))) //nolint:gosec // payload lengths are bounded to realistic key/cert sizes far below 4GiB
 	out = append(out, hdr[:]...)
 	out = append(out, b...)
 	return out

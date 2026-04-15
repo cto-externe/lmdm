@@ -138,7 +138,7 @@ func FuzzVerifyRejectsArbitraryInputs(f *testing.F) {
 	f.Add([]byte{}, []byte{}, []byte{})
 	f.Add([]byte("other"), valid.Ed25519, valid.MLDSA)
 
-	f.Fuzz(func(t *testing.T, msg, edSig, mlSig []byte) {
+	f.Fuzz(func(_ *testing.T, msg, edSig, mlSig []byte) {
 		sig := &HybridSignature{Ed25519: edSig, MLDSA: mlSig}
 		// Must not panic for any input; return value is not asserted.
 		_ = Verify(pub, msg, sig)

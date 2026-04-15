@@ -39,7 +39,7 @@ func Enroll(
 	if err != nil {
 		return nil, fmt.Errorf("agentenroll: dial %s: %w", grpcAddr, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	resp, err := lmdmv1.NewEnrollmentServiceClient(conn).Enroll(ctx, &lmdmv1.EnrollRequest{
 		EnrollmentToken: token,

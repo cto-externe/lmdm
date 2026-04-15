@@ -35,7 +35,7 @@ func TestGeneratePlaintextFormat(t *testing.T) {
 		t.Fatal("plaintext should not contain padding characters")
 	}
 	for _, c := range plaintext {
-		if !((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7')) {
+		if (c < 'A' || c > 'Z') && (c < '2' || c > '7') {
 			t.Fatalf("plaintext contains non-base32 char %q", c)
 		}
 	}

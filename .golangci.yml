@@ -14,16 +14,16 @@ linters:
     - revive
     - unconvert
     - unused
-
-linters-settings:
-  revive:
-    rules:
-      - name: exported
-      - name: error-return
-      - name: error-strings
+  settings:
+    revive:
+      rules:
+        - name: exported
+        - name: error-return
+        - name: error-strings
+  exclusions:
+    paths:
+      - gen
 
 issues:
-  exclude-dirs:
-    - gen
   max-issues-per-linter: 0
   max-same-issues: 0

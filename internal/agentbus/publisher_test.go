@@ -66,3 +66,14 @@ func TestIntegrationPublishRoundTrip(t *testing.T) {
 		t.Fatal("subscriber timed out")
 	}
 }
+
+func TestConnectHonorsContextCancel(t *testing.T) {
+	// Pointing at a non-listening address with a ctx that's already cancelled
+	// must return ctx.Err() quickly (not block on reconnect retries).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := Connect(ctx, "nats://127.0.0.1:1") // unreachable
+	if err == nil {
+		t.Fatal("Connect must return an error when ctx is cancelled")
+	}
+}

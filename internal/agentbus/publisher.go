@@ -19,14 +19,16 @@ type Bus struct {
 }
 
 // Connect dials NATS with reconnect/jitter options matching the architecture
-// spec §8A.3 (infinite reconnect, exponential backoff with 30% jitter, large
-// reconnect buffer).
-func Connect(_ context.Context, url string) (*Bus, error) {
+// spec §8A.3 (infinite reconnect, exponential backoff with jitter, large
+// reconnect buffer). Honors ctx cancellation: if ctx is done before the
+// initial connect returns, Connect returns ctx.Err() and the background
+// connect result (if any) is closed once it arrives.
+func Connect(ctx context.Context, url string) (*Bus, error) {
 	opts := []nats.Option{
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2 * time.Second),
 		nats.CustomReconnectDelay(func(n int) time.Duration {
-			base := math.Min(float64(n)*2, 300)
+			base := math.Min(float64(n+1)*2, 300)
 			jitter := rand.Float64() * base * 0.3 //nolint:gosec // non-crypto jitter for reconnect backoff
 			return time.Duration(base+jitter) * time.Second
 		}),
@@ -35,11 +37,33 @@ func Connect(_ context.Context, url string) (*Bus, error) {
 		nats.MaxPingsOutstanding(3),
 		nats.RetryOnFailedConnect(true),
 	}
-	nc, err := nats.Connect(url, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("agentbus: connect: %w", err)
+
+	type result struct {
+		nc  *nats.Conn
+		err error
 	}
-	return &Bus{nc: nc}, nil
+	ch := make(chan result, 1)
+	go func() {
+		nc, err := nats.Connect(url, opts...)
+		ch <- result{nc: nc, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Ensure we don't leak the background connection if it succeeds later.
+		go func() {
+			r := <-ch
+			if r.nc != nil {
+				r.nc.Close()
+			}
+		}()
+		return nil, fmt.Errorf("agentbus: connect: %w", ctx.Err())
+	case r := <-ch:
+		if r.err != nil {
+			return nil, fmt.Errorf("agentbus: connect: %w", r.err)
+		}
+		return &Bus{nc: r.nc}, nil
+	}
 }
 
 // Publish sends data on the given subject. Returns an error if NATS rejects

@@ -28,7 +28,7 @@ func Connect(_ context.Context, url string) (*Bus, error) {
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2 * time.Second),
 		nats.CustomReconnectDelay(func(n int) time.Duration {
-			base := math.Min(float64(n)*2, 300)
+			base := math.Min(float64(n+1)*2, 300)
 			jitter := rand.Float64() * base * 0.3 //nolint:gosec // non-crypto jitter for reconnect backoff
 			return time.Duration(base+jitter) * time.Second
 		}),

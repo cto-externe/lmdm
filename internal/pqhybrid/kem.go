@@ -89,7 +89,8 @@ func Encapsulate(pub *KEMPublicKey) (*HybridCiphertext, []byte, error) {
 	}
 	mlShared, mlCT := mlPub.Encapsulate()
 
-	combined := deriveSharedSecret(xShared, mlShared)
+	salt := computeKEMSalt(pub.X25519, pub.MLKEM, ephX.PublicKey().Bytes(), mlCT)
+	combined := deriveSharedSecret(salt, xShared, mlShared)
 	ct := &HybridCiphertext{
 		X25519EphemeralPub: ephX.PublicKey().Bytes(),
 		MLKEMCiphertext:    mlCT,
@@ -118,17 +119,35 @@ func Decapsulate(priv *KEMPrivateKey, ct *HybridCiphertext) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pqhybrid: ml-kem decapsulate: %w", err)
 	}
-	return deriveSharedSecret(xShared, mlShared), nil
+	ourStaticX25519 := priv.X25519.PublicKey().Bytes()
+	ourStaticMLKEM := priv.MLKEM.EncapsulationKey().Bytes()
+	salt := computeKEMSalt(ourStaticX25519, ourStaticMLKEM, ct.X25519EphemeralPub, ct.MLKEMCiphertext)
+	return deriveSharedSecret(salt, xShared, mlShared), nil
+}
+
+// computeKEMSalt returns a 32-byte SHA-256 digest of the four session-context
+// inputs concatenated in order: peer static X25519 pub, peer static ML-KEM pub,
+// ephemeral X25519 pub, ML-KEM ciphertext. Both Encapsulate and Decapsulate
+// compute the same value, binding the derived secret to the intended recipient
+// and the full session transcript.
+func computeKEMSalt(peerStaticX25519, peerStaticMLKEM, ephX25519Pub, mlkemCT []byte) []byte {
+	h := sha256.New()
+	h.Write(peerStaticX25519)
+	h.Write(peerStaticMLKEM)
+	h.Write(ephX25519Pub)
+	h.Write(mlkemCT)
+	return h.Sum(nil)
 }
 
 // deriveSharedSecret combines the classical and post-quantum shared secrets
-// via HKDF-SHA256 with a fixed domain separation label. This is the
-// recommended construction for hybrid KEMs.
-func deriveSharedSecret(classical, pq []byte) []byte {
+// via HKDF-SHA256. The salt binds the derivation to the session transcript
+// (peer static pubkeys + ephemeral pub + ciphertext), ruling out cross-session
+// secret reuse. The info label "LMDM-hybrid-kem-v1" provides domain separation.
+func deriveSharedSecret(salt, classical, pq []byte) []byte {
 	input := make([]byte, 0, len(classical)+len(pq))
 	input = append(input, classical...)
 	input = append(input, pq...)
-	reader := hkdf.New(sha256.New, input, nil, []byte("LMDM-hybrid-kem-v1"))
+	reader := hkdf.New(sha256.New, input, salt, []byte("LMDM-hybrid-kem-v1"))
 	out := make([]byte, SharedSecretSize)
 	_, _ = reader.Read(out)
 	return out

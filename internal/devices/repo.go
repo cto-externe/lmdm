@@ -109,6 +109,11 @@ func (r *Repository) UpdateLastSeen(ctx context.Context, tenantID, id uuid.UUID,
 	return nil
 }
 
+// Pool returns the underlying connection pool for callers that need to run
+// tenant-agnostic queries (e.g., the heartbeat ingester which doesn't know
+// the tenant up front). Use sparingly.
+func (r *Repository) Pool() *db.Pool { return r.pool }
+
 func (r *Repository) withTenant(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
 	return r.withTenantTx(ctx, tenantID, fn)
 }

@@ -49,6 +49,10 @@ func Connect(ctx context.Context, url string) (*Bus, error) {
 	return &Bus{nc: nc, js: js}, nil
 }
 
+// JetStream returns the underlying JetStream context. Used by feature
+// packages that need to create their own consumers.
+func (b *Bus) JetStream() jetstream.JetStream { return b.js }
+
 // Close drains and closes the underlying NATS connection.
 func (b *Bus) Close() {
 	if b == nil || b.nc == nil {

@@ -79,36 +79,6 @@ func TestIntegrationInsertAndFind(t *testing.T) {
 	}
 }
 
-func TestIntegrationFindByPubKey(t *testing.T) {
-	if testing.Short() {
-		t.Skip("integration test requires Docker")
-	}
-	r, cleanup := setupRepo(t)
-	defer cleanup()
-
-	tenantID := uuid.MustParse(defaultTenant)
-	pub := []byte("a-unique-ed25519-pub")
-	d := &Device{
-		ID:                 uuid.New(),
-		TenantID:           tenantID,
-		Type:               TypeWorkstation,
-		Hostname:           "PC-002",
-		AgentPubkeyEd25519: pub,
-		AgentPubkeyMLDSA:   []byte("mldsa-pub"),
-	}
-	if err := r.Insert(context.Background(), d); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := r.FindByEd25519PubKey(context.Background(), pub)
-	if err != nil {
-		t.Fatalf("FindByEd25519PubKey: %v", err)
-	}
-	if got.ID != d.ID {
-		t.Errorf("ID mismatch: %v vs %v", got.ID, d.ID)
-	}
-}
-
 func TestIntegrationDuplicatePubKeyRejected(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test requires Docker")

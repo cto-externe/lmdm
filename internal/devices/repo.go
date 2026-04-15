@@ -81,35 +81,6 @@ func (r *Repository) FindByID(ctx context.Context, tenantID, id uuid.UUID) (*Dev
 	return &d, nil
 }
 
-// FindByEd25519PubKey looks up a device by its agent's Ed25519 public key.
-// Used during re-enrollment to detect already-known agents. Returns ErrNotFound
-// if absent. Bypasses tenant scope (lookup is global by unique key).
-func (r *Repository) FindByEd25519PubKey(ctx context.Context, pub []byte) (*Device, error) {
-	const q = `
-		SELECT id, tenant_id, device_type, hostname, serial_number, manufacturer, model,
-		       site_id, status, last_seen, enrolled_at, enrolled_via_token,
-		       agent_pubkey_ed25519, agent_pubkey_mldsa, cert_serial
-		  FROM devices WHERE agent_pubkey_ed25519 = $1
-	`
-	var d Device
-	var devType, devStatus string
-	err := r.pool.QueryRow(ctx, q, pub).Scan(
-		&d.ID, &d.TenantID, &devType, &d.Hostname,
-		&d.SerialNumber, &d.Manufacturer, &d.Model,
-		&d.SiteID, &devStatus, &d.LastSeen, &d.EnrolledAt, &d.EnrolledViaToken,
-		&d.AgentPubkeyEd25519, &d.AgentPubkeyMLDSA, &d.CertSerial,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, fmt.Errorf("devices: find by pubkey: %w", err)
-	}
-	d.Type = Type(devType)
-	d.Status = Status(devStatus)
-	return &d, nil
-}
-
 func (r *Repository) withTenant(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
 	return r.withTenantTx(ctx, tenantID, fn)
 }

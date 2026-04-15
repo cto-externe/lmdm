@@ -24,6 +24,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentbus"
 	"github.com/cto-externe/lmdm/internal/agentcert"
 	"github.com/cto-externe/lmdm/internal/agentenroll"
+	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentkey"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
 )
@@ -109,6 +110,7 @@ func cmdRun(args []string) error {
 	dataDir := fs.String("data-dir", defaultDataDir(), "directory containing agent identity")
 	natsURL := fs.String("nats-url", "", "NATS connection URL")
 	interval := fs.Duration("interval", 60*time.Second, "heartbeat interval")
+	inventoryInterval := fs.Duration("inventory-interval", time.Hour, "inventory reporting interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -136,8 +138,24 @@ func cmdRun(args []string) error {
 	}
 	defer bus.Close()
 
-	r := agentrunner.New(bus, deviceID, agentVersion, *interval)
-	return r.Run(ctx)
+	// Run heartbeat + inventory loops concurrently; first error wins, but
+	// both are expected to return nil on ctx cancel.
+	heartbeat := agentrunner.New(bus, deviceID, agentVersion, *interval)
+	inventory := agentinventoryrunner.New(bus, deviceID, *inventoryInterval)
+
+	errCh := make(chan error, 2)
+	go func() { errCh <- heartbeat.Run(ctx) }()
+	go func() { errCh <- inventory.Run(ctx) }()
+
+	// Wait for both goroutines to finish.
+	var firstErr error
+	for i := 0; i < 2; i++ {
+		if err := <-errCh; err != nil && firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+	}
+	return firstErr
 }
 
 // deviceIDFromCert extracts the device_id field from the SignedAgentCert.

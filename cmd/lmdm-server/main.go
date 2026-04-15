@@ -19,6 +19,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
+	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/server"
@@ -88,6 +89,13 @@ func run() error {
 	}
 	defer ingester.Stop()
 	slog.Info("status ingester started")
+
+	invIngester := inventoryingester.New(bus, deviceRepo)
+	if err := invIngester.Start(ctx); err != nil {
+		return fmt.Errorf("inventory ingester: %w", err)
+	}
+	defer invIngester.Stop()
+	slog.Info("inventory ingester started")
 
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,

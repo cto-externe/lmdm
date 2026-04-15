@@ -79,7 +79,7 @@ func TestIntegrationEnrollClientHappyPath(t *testing.T) {
 	defer gs.Stop()
 
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
-	res, err := Enroll(ctx, lis.Addr().String(), plaintext, agentPub, &lmdmv1.HardwareFingerprint{
+	res, err := Enroll(ctx, lis.Addr().String(), plaintext, "0.1.0-test", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-CLIENT-TEST",
 	})
 	if err != nil {

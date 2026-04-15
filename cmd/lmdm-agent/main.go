@@ -84,7 +84,7 @@ func cmdEnroll(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	res, err := agentenroll.Enroll(ctx, *server, *token, agentPub, hardware)
+	res, err := agentenroll.Enroll(ctx, *server, *token, agentVersion, agentPub, hardware)
 	if err != nil {
 		return fmt.Errorf("enroll: %w", err)
 	}

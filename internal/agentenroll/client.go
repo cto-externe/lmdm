@@ -31,7 +31,7 @@ type Result struct {
 // parsed result. Insecure transport at MVP — TLS is added in a later plan.
 func Enroll(
 	ctx context.Context,
-	grpcAddr, token string,
+	grpcAddr, token, agentVersion string,
 	agentPub *pqhybrid.SigningPublicKey,
 	hardware *lmdmv1.HardwareFingerprint,
 ) (*Result, error) {
@@ -48,7 +48,7 @@ func Enroll(
 			MlDsa:   agentPub.MLDSA,
 		},
 		Hardware:     hardware,
-		AgentVersion: "0.1.0",
+		AgentVersion: agentVersion,
 		FirstBoot:    true,
 	})
 	if err != nil {

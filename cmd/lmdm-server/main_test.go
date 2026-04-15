@@ -379,7 +379,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 	}
 
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
-	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, agentPub, &lmdmv1.HardwareFingerprint{
+	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-e2e", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-HB-E2E",
 	})
 	if err != nil {

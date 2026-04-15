@@ -20,6 +20,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
+	"github.com/cto-externe/lmdm/internal/statusingester"
 	"github.com/cto-externe/lmdm/internal/tokens"
 )
 
@@ -77,6 +78,13 @@ func run() error {
 	enrollSvc := grpcservices.NewEnrollmentService(
 		tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, cfg.EnrollmentCertTTL,
 	)
+
+	ingester := statusingester.New(bus, deviceRepo)
+	if err := ingester.Start(ctx); err != nil {
+		return fmt.Errorf("status ingester: %w", err)
+	}
+	defer ingester.Stop()
+	slog.Info("status ingester started")
 
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,

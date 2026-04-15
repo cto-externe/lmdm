@@ -2,17 +2,21 @@
 // For local development, sensible defaults point at the docker-compose stack.
 package config
 
+import "time"
+
 // Config holds the runtime configuration for the LMDM server.
 type Config struct {
-	HTTPAddr    string
-	GRPCAddr    string
-	DatabaseURL string
-	NATSURL     string
-	S3Endpoint  string
-	S3Region    string
-	S3Bucket    string
-	S3AccessKey string
-	S3SecretKey string
+	HTTPAddr          string
+	GRPCAddr          string
+	DatabaseURL       string
+	NATSURL           string
+	S3Endpoint        string
+	S3Region          string
+	S3Bucket          string
+	S3AccessKey       string
+	S3SecretKey       string
+	ServerKeyPath     string
+	EnrollmentCertTTL time.Duration
 }
 
 // EnvLookup is the minimal interface required to read an environment variable.
@@ -24,15 +28,17 @@ type EnvLookup func(key string) string
 // defaults for local docker-compose usage.
 func Load(env EnvLookup) (*Config, error) {
 	cfg := &Config{
-		HTTPAddr:    firstNonEmpty(env("LMDM_HTTP_ADDR"), ":8080"),
-		GRPCAddr:    firstNonEmpty(env("LMDM_GRPC_ADDR"), ":50051"),
-		DatabaseURL: firstNonEmpty(env("LMDM_DATABASE_URL"), "postgres://lmdm:lmdm@localhost:5432/lmdm?sslmode=disable"),
-		NATSURL:     firstNonEmpty(env("LMDM_NATS_URL"), "nats://localhost:4222"),
-		S3Endpoint:  firstNonEmpty(env("LMDM_S3_ENDPOINT"), "http://localhost:3900"),
-		S3Region:    firstNonEmpty(env("LMDM_S3_REGION"), "garage"),
-		S3Bucket:    firstNonEmpty(env("LMDM_S3_BUCKET"), "lmdm-packages"),
-		S3AccessKey: env("LMDM_S3_ACCESS_KEY"),
-		S3SecretKey: env("LMDM_S3_SECRET_KEY"),
+		HTTPAddr:          firstNonEmpty(env("LMDM_HTTP_ADDR"), ":8080"),
+		GRPCAddr:          firstNonEmpty(env("LMDM_GRPC_ADDR"), ":50051"),
+		DatabaseURL:       firstNonEmpty(env("LMDM_DATABASE_URL"), "postgres://lmdm:lmdm@localhost:5432/lmdm?sslmode=disable"),
+		NATSURL:           firstNonEmpty(env("LMDM_NATS_URL"), "nats://localhost:4222"),
+		S3Endpoint:        firstNonEmpty(env("LMDM_S3_ENDPOINT"), "http://localhost:3900"),
+		S3Region:          firstNonEmpty(env("LMDM_S3_REGION"), "garage"),
+		S3Bucket:          firstNonEmpty(env("LMDM_S3_BUCKET"), "lmdm-packages"),
+		S3AccessKey:       env("LMDM_S3_ACCESS_KEY"),
+		S3SecretKey:       env("LMDM_S3_SECRET_KEY"),
+		ServerKeyPath:     firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "/var/lib/lmdm/server-signing.key"),
+		EnrollmentCertTTL: parseDurationOrDefault(env("LMDM_ENROLLMENT_CERT_TTL"), 365*24*time.Hour),
 	}
 	return cfg, nil
 }
@@ -44,4 +50,15 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func parseDurationOrDefault(s string, def time.Duration) time.Duration {
+	if s == "" {
+		return def
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return def
+	}
+	return d
 }

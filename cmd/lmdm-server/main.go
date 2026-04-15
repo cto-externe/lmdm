@@ -11,11 +11,16 @@ import (
 	"syscall"
 	"time"
 
+	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/config"
 	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/devices"
+	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/server"
+	"github.com/cto-externe/lmdm/internal/serverkey"
+	"github.com/cto-externe/lmdm/internal/tokens"
 )
 
 func main() {
@@ -55,6 +60,24 @@ func run() error {
 		return fmt.Errorf("nats streams: %w", err)
 	}
 
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(cfg.ServerKeyPath)
+	if err != nil {
+		return fmt.Errorf("server key: %w", err)
+	}
+	slog.Info("server signing key ready", "path", cfg.ServerKeyPath)
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+
+	endpoints := &lmdmv1.ServerEndpoints{
+		NatsUrl: cfg.NATSURL,
+		GrpcUrl: cfg.GRPCAddr,
+		ApiUrl:  "http://" + cfg.HTTPAddr,
+	}
+	enrollSvc := grpcservices.NewEnrollmentService(
+		tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, cfg.EnrollmentCertTTL,
+	)
+
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,
 		Region:    cfg.S3Region,
@@ -83,6 +106,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("server new: %w", err)
 	}
+
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	errs := srv.Start()
 	slog.Info("lmdm-server started", "http", cfg.HTTPAddr, "grpc", cfg.GRPCAddr)

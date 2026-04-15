@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -20,6 +21,12 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.NATSURL == "" {
 		t.Error("NATSURL must have a default for local dev")
+	}
+	if cfg.ServerKeyPath == "" {
+		t.Error("ServerKeyPath must have a default")
+	}
+	if cfg.EnrollmentCertTTL == 0 {
+		t.Error("EnrollmentCertTTL must have a default")
 	}
 }
 
@@ -44,5 +51,22 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.S3Bucket != "lmdm-packages" {
 		t.Errorf("S3Bucket = %q", cfg.S3Bucket)
+	}
+}
+
+func TestLoadEnrollmentOverrides(t *testing.T) {
+	env := map[string]string{
+		"LMDM_SERVER_KEY_PATH":     "/tmp/key.bin",
+		"LMDM_ENROLLMENT_CERT_TTL": "168h",
+	}
+	cfg, err := Load(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerKeyPath != "/tmp/key.bin" {
+		t.Errorf("ServerKeyPath = %q", cfg.ServerKeyPath)
+	}
+	if cfg.EnrollmentCertTTL != 7*24*time.Hour {
+		t.Errorf("EnrollmentCertTTL = %v", cfg.EnrollmentCertTTL)
 	}
 }

@@ -39,47 +39,47 @@ message ProfileID {
 enum DeviceType {
   DEVICE_TYPE_UNSPECIFIED = 0;
   DEVICE_TYPE_WORKSTATION = 1;
-  DEVICE_TYPE_PRINTER     = 2;
-  DEVICE_TYPE_NETWORK     = 3;
-  DEVICE_TYPE_MOBILE      = 4;
+  DEVICE_TYPE_PRINTER = 2;
+  DEVICE_TYPE_NETWORK = 3;
+  DEVICE_TYPE_MOBILE = 4;
 }
 
 enum DeviceStatus {
-  DEVICE_STATUS_UNSPECIFIED    = 0;
-  DEVICE_STATUS_ONLINE         = 1;
-  DEVICE_STATUS_OFFLINE        = 2;
-  DEVICE_STATUS_DEGRADED       = 3;
+  DEVICE_STATUS_UNSPECIFIED = 0;
+  DEVICE_STATUS_ONLINE = 1;
+  DEVICE_STATUS_OFFLINE = 2;
+  DEVICE_STATUS_DEGRADED = 3;
   DEVICE_STATUS_DECOMMISSIONED = 4;
 }
 
 enum OSFamily {
   OS_FAMILY_UNSPECIFIED = 0;
-  OS_FAMILY_DEBIAN      = 1; // Debian, Ubuntu, Mint
-  OS_FAMILY_RHEL        = 2; // RHEL, AlmaLinux, Rocky, Fedora
-  OS_FAMILY_NIXOS       = 3;
+  OS_FAMILY_DEBIAN = 1; // Debian, Ubuntu, Mint
+  OS_FAMILY_RHEL = 2; // RHEL, AlmaLinux, Rocky, Fedora
+  OS_FAMILY_NIXOS = 3;
 }
 
 enum BandwidthClass {
   BANDWIDTH_CLASS_UNSPECIFIED = 0;
-  BANDWIDTH_CLASS_EXCELLENT   = 1; // RTT < 15ms, ethernet
-  BANDWIDTH_CLASS_GOOD        = 2; // RTT < 50ms
-  BANDWIDTH_CLASS_DEGRADED    = 3; // RTT 50-200ms
-  BANDWIDTH_CLASS_LOW         = 4; // RTT > 200ms or 4G/satellite
-  BANDWIDTH_CLASS_CRITICAL    = 5; // RTT > 500ms or >10% packet loss
+  BANDWIDTH_CLASS_EXCELLENT = 1; // RTT < 15ms, ethernet
+  BANDWIDTH_CLASS_GOOD = 2; // RTT < 50ms
+  BANDWIDTH_CLASS_DEGRADED = 3; // RTT 50-200ms
+  BANDWIDTH_CLASS_LOW = 4; // RTT > 200ms or 4G/satellite
+  BANDWIDTH_CLASS_CRITICAL = 5; // RTT > 500ms or >10% packet loss
 }
 
 enum HealthScore {
   HEALTH_SCORE_UNSPECIFIED = 0;
-  HEALTH_SCORE_GREEN       = 1;
-  HEALTH_SCORE_ORANGE      = 2;
-  HEALTH_SCORE_RED         = 3;
+  HEALTH_SCORE_GREEN = 1;
+  HEALTH_SCORE_ORANGE = 2;
+  HEALTH_SCORE_RED = 3;
 }
 
 enum ComplianceStatus {
-  COMPLIANCE_STATUS_UNSPECIFIED   = 0;
-  COMPLIANCE_STATUS_COMPLIANT     = 1;
+  COMPLIANCE_STATUS_UNSPECIFIED = 0;
+  COMPLIANCE_STATUS_COMPLIANT = 1;
   COMPLIANCE_STATUS_NON_COMPLIANT = 2;
-  COMPLIANCE_STATUS_UNKNOWN       = 3;
+  COMPLIANCE_STATUS_UNKNOWN = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,13 +89,13 @@ enum ComplianceStatus {
 // Hybrid post-quantum signature (Ed25519 + ML-DSA-65).
 message HybridSignature {
   bytes ed25519 = 1;
-  bytes ml_dsa  = 2;
+  bytes ml_dsa = 2;
 }
 
 // Hybrid public key (Ed25519 + ML-DSA-65).
 message HybridPublicKey {
   bytes ed25519 = 1;
-  bytes ml_dsa  = 2;
+  bytes ml_dsa = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,19 +104,19 @@ message HybridPublicKey {
 
 // Key-value label pair used for tags and metadata.
 message Label {
-  string key   = 1;
+  string key = 1;
   string value = 2;
 }
 
 // Pagination cursor for list operations.
 message PageToken {
   string token = 1;
-  int32  limit = 2;
+  int32 limit = 2;
 }
 
 message PageInfo {
-  string next_token   = 1;
-  int32  total_count  = 2;
+  string next_token = 1;
+  int32 total_count = 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,29 +126,29 @@ message PageInfo {
 // Operating system identification reused across enrollment fingerprints and
 // inventory reports.
 message OSInfo {
-  OSFamily family              = 1;
-  string   name                = 2; // "debian", "ubuntu", "mint", "rhel", "almalinux", "rocky", "fedora", "nixos"
-  string   version             = 3; // "12", "24.04", "9.3"
-  string   codename            = 4; // "bookworm", "noble"
-  string   kernel              = 5; // "6.1.0-18-amd64"
-  bool     secure_boot_enabled = 6;
+  OSFamily family = 1;
+  string name = 2; // "debian", "ubuntu", "mint", "rhel", "almalinux", "rocky", "fedora", "nixos"
+  string version = 3; // "12", "24.04", "9.3"
+  string codename = 4; // "bookworm", "noble"
+  string kernel = 5; // "6.1.0-18-amd64"
+  bool secure_boot_enabled = 6;
 }
 
 // TPM presence and state — reused by enrollment and inventory.
 message TPMInfo {
-  bool   present = 1;
+  bool present = 1;
   string version = 2; // "2.0", "1.2"
-  bool   owned   = 3;
+  bool owned = 3;
 }
 
 // Network interface snapshot — reused by enrollment and inventory.
 message NetworkInterface {
-  string name       = 1; // "eth0", "wlan0"
-  string mac        = 2;
-  string ipv4       = 3;
-  string ipv6       = 4;
-  string subnet     = 5; // "192.168.1.0/24"
-  string gateway    = 6;
-  string type       = 7; // "ethernet", "wifi", "cellular"
+  string name = 1; // "eth0", "wlan0"
+  string mac = 2;
+  string ipv4 = 3;
+  string ipv6 = 4;
+  string subnet = 5; // "192.168.1.0/24"
+  string gateway = 6;
+  string type = 7; // "ethernet", "wifi", "cellular"
   uint32 speed_mbps = 8;
 }

@@ -6,9 +6,9 @@ syntax = "proto3";
 
 package lmdm.v1;
 
-option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
-
 import "lmdm/v1/common.proto";
+
+option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
 
 // ---------------------------------------------------------------------------
 // gRPC Service
@@ -34,26 +34,26 @@ message TerminalData {
 
   oneof payload {
     // Session initialization (first message from agent).
-    TerminalInit   init   = 10;
+    TerminalInit init = 10;
 
     // Raw I/O data.
-    bytes          data   = 11; // stdin (console→agent) or stdout/stderr (agent→console)
+    bytes data = 11; // stdin (console→agent) or stdout/stderr (agent→console)
 
     // Terminal resize event.
     TerminalResize resize = 12;
 
     // Session end.
-    TerminalClose  close  = 13;
+    TerminalClose close = 13;
   }
 }
 
 message TerminalInit {
   DeviceID device_id = 1;
-  string   shell     = 2; // "/bin/bash", "/bin/sh"
-  string   user      = 3; // User to run the shell as.
-  uint32   cols      = 4;
-  uint32   rows      = 5;
-  string   term      = 6; // "xterm-256color"
+  string shell = 2; // "/bin/bash", "/bin/sh"
+  string user = 3; // User to run the shell as.
+  uint32 cols = 4;
+  uint32 rows = 5;
+  string term = 6; // "xterm-256color"
 }
 
 message TerminalResize {
@@ -62,8 +62,8 @@ message TerminalResize {
 }
 
 message TerminalClose {
-  int32  exit_code = 1;
-  string reason    = 2; // "user_disconnect", "timeout", "error"
+  int32 exit_code = 1;
+  string reason = 2; // "user_disconnect", "timeout", "error"
 }
 
 // ---------------------------------------------------------------------------
@@ -77,16 +77,16 @@ message FileChunk {
   FileMetadata metadata = 2; // Only in first chunk.
 
   // File data.
-  bytes  data   = 3;
+  bytes data = 3;
   uint64 offset = 4;
-  bool   is_last = 5;
+  bool is_last = 5;
 }
 
 message FileMetadata {
-  string path            = 1; // Remote path on the agent.
-  uint64 size_bytes      = 2;
+  string path = 1; // Remote path on the agent.
+  uint64 size_bytes = 2;
   string checksum_blake3 = 3;
-  uint32 mode            = 4; // Unix permissions (e.g. 0644).
+  uint32 mode = 4; // Unix permissions (e.g. 0644).
 }
 
 message FileRequest {
@@ -96,8 +96,8 @@ message FileRequest {
 }
 
 message FileTransferResult {
-  bool   success         = 1;
-  string error           = 2;
+  bool success = 1;
+  string error = 2;
   uint64 bytes_transferred = 3;
   string checksum_blake3 = 4;
 }

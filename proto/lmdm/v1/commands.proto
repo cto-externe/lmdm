@@ -9,10 +9,10 @@ syntax = "proto3";
 
 package lmdm.v1;
 
-option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
-
 import "google/protobuf/timestamp.proto";
 import "lmdm/v1/common.proto";
+
+option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
 
 // ---------------------------------------------------------------------------
 // Command Envelope (Server → Agent via NATS)
@@ -28,29 +28,29 @@ message CommandEnvelope {
 
   // The command itself.
   oneof command {
-    ApplyProfileCommand     apply_profile     = 10;
-    RemoveProfileCommand    remove_profile    = 11;
-    DeployPackageCommand    deploy_package    = 12;
-    RemovePackageCommand    remove_package    = 13;
-    ApplyPatchesCommand     apply_patches     = 14;
-    ApplyFirmwareCommand    apply_firmware    = 15;
-    RollbackCommand         rollback          = 16;
-    RebootCommand           reboot            = 17;
+    ApplyProfileCommand apply_profile = 10;
+    RemoveProfileCommand remove_profile = 11;
+    DeployPackageCommand deploy_package = 12;
+    RemovePackageCommand remove_package = 13;
+    ApplyPatchesCommand apply_patches = 14;
+    ApplyFirmwareCommand apply_firmware = 15;
+    RollbackCommand rollback = 16;
+    RebootCommand reboot = 17;
     RequestInventoryCommand request_inventory = 18;
-    RequestHealthCommand    request_health    = 19;
-    OpenRemoteCommand       open_remote       = 20;
-    UpdateAgentCommand      update_agent      = 21;
-    SetRelayCommand         set_relay         = 22;
-    RunHealthCheckCommand   run_health_check  = 23;
-    RevokeCommand           revoke            = 24;
+    RequestHealthCommand request_health = 19;
+    OpenRemoteCommand open_remote = 20;
+    UpdateAgentCommand update_agent = 21;
+    SetRelayCommand set_relay = 22;
+    RunHealthCheckCommand run_health_check = 23;
+    RevokeCommand revoke = 24;
   }
 
-  google.protobuf.Timestamp issued_at  = 3;
+  google.protobuf.Timestamp issued_at = 3;
   google.protobuf.Timestamp expires_at = 4; // Command is discarded if received after expiry.
 
   // Deployment context (if this command is part of a deployment workflow).
   DeploymentID deployment_id = 5; // Nullable — only set during canary/rollout.
-  bool         is_canary     = 6;
+  bool is_canary = 6;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,12 +59,12 @@ message CommandEnvelope {
 
 message ApplyProfileCommand {
   ProfileID profile_id = 1;
-  string    version    = 2;
-  
+  string version = 2;
+
   // Signed profile content (YAML serialized, agent verifies signature before applying).
-  bytes             profile_content = 3;
-  HybridSignature   profile_signature = 4;
-  
+  bytes profile_content = 3;
+  HybridSignature profile_signature = 4;
+
   // Deployment mode.
   bool force = 5; // If true, reapply even if already compliant.
 }
@@ -79,17 +79,17 @@ message RemoveProfileCommand {
 // ---------------------------------------------------------------------------
 
 message DeployPackageCommand {
-  string package_name    = 1;
+  string package_name = 1;
   string package_version = 2;
 
   // Package recipe (YAML, signed).
-  bytes           recipe_content   = 3;
+  bytes recipe_content = 3;
   HybridSignature recipe_signature = 4;
 
   // If the package has a binary artifact (stored in Garage S3).
-  string download_url    = 5; // Pre-signed URL (direct from Garage or via relay).
+  string download_url = 5; // Pre-signed URL (direct from Garage or via relay).
   string checksum_blake3 = 6;
-  uint64 size_bytes      = 7;
+  uint64 size_bytes = 7;
 
   // Relay info (if the agent should fetch from a LAN relay instead of WAN).
   string relay_url = 8; // e.g. "http://192.168.1.10:18080/packages/{hash}"
@@ -114,20 +114,20 @@ message ApplyPatchesCommand {
   bool auto_reboot = 3;
 
   // Reboot window (if auto_reboot = true).
-  google.protobuf.Timestamp reboot_after  = 4;
+  google.protobuf.Timestamp reboot_after = 4;
   google.protobuf.Timestamp reboot_before = 5;
 }
 
 message PatchFilter {
-  bool security_only = 1;             // Only security patches.
+  bool security_only = 1; // Only security patches.
   repeated string include_packages = 2; // Specific packages to update (empty = all).
   repeated string exclude_packages = 3; // Packages to skip.
 }
 
 message ApplyFirmwareCommand {
-  string fwupd_device_id    = 1;
-  string target_version     = 2;
-  bool   requires_reboot    = 3;
+  string fwupd_device_id = 1;
+  string target_version = 2;
+  bool requires_reboot = 3;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,20 +171,20 @@ message RunHealthCheckCommand {
 
 message HealthCheckDefinition {
   string name = 1;
-  
+
   oneof check {
-    HTTPGetCheck     http_get      = 10;
-    TCPConnectCheck  tcp_connect   = 11;
-    ProcessCheck     process_check = 12;
-    ServiceCheck     service_check = 13;
-    CommandCheck     command_check = 14;
+    HTTPGetCheck http_get = 10;
+    TCPConnectCheck tcp_connect = 11;
+    ProcessCheck process_check = 12;
+    ServiceCheck service_check = 13;
+    CommandCheck command_check = 14;
   }
 
   uint32 timeout_seconds = 2;
 }
 
 message HTTPGetCheck {
-  string url             = 1;
+  string url = 1;
   uint32 expected_status = 2; // e.g. 200
 }
 
@@ -198,13 +198,13 @@ message ProcessCheck {
 }
 
 message ServiceCheck {
-  string service_name   = 1; // systemd service name.
+  string service_name = 1; // systemd service name.
   string expected_state = 2; // "active", "inactive"
 }
 
 message CommandCheck {
-  string command       = 1; // Shell command to run.
-  int32  expected_exit = 2; // Expected exit code (default 0).
+  string command = 1; // Shell command to run.
+  int32 expected_exit = 2; // Expected exit code (default 0).
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +212,7 @@ message CommandCheck {
 // ---------------------------------------------------------------------------
 
 message OpenRemoteCommand {
-  string session_id   = 1; // Unique session ID for this remote session.
+  string session_id = 1; // Unique session ID for this remote session.
   string session_type = 2; // "terminal" or "desktop"
   string initiated_by = 3; // User ID of the admin requesting access.
 }
@@ -222,16 +222,16 @@ message OpenRemoteCommand {
 // ---------------------------------------------------------------------------
 
 message UpdateAgentCommand {
-  string target_version    = 1;
-  string download_url      = 2; // Pre-signed URL for the new agent binary.
-  string checksum_blake3   = 3;
+  string target_version = 1;
+  string download_url = 2; // Pre-signed URL for the new agent binary.
+  string checksum_blake3 = 3;
   HybridSignature signature = 4;
 }
 
 message SetRelayCommand {
-  bool   is_relay       = 1;
-  uint32 cache_max_gb   = 2;
-  uint32 listen_port    = 3; // Default: 18080
+  bool is_relay = 1;
+  uint32 cache_max_gb = 2;
+  uint32 listen_port = 3; // Default: 18080
 }
 
 message RevokeCommand {
@@ -250,8 +250,8 @@ message CommandResult {
 
   google.protobuf.Timestamp timestamp = 3;
 
-  bool   success    = 4;
-  string error      = 5; // Error message if !success.
+  bool success = 4;
+  string error = 5; // Error message if !success.
   uint32 duration_ms = 6;
 
   // Snapshot ID created before this command was applied (for rollback).
@@ -262,12 +262,12 @@ message CommandResult {
 
   // Deployment context.
   DeploymentID deployment_id = 9;
-  bool         is_canary     = 10;
+  bool is_canary = 10;
 }
 
 message HealthCheckResult {
-  string name    = 1;
-  bool   passed  = 2;
-  string detail  = 3; // e.g. "HTTP 200 OK in 45ms" or "Connection refused"
+  string name = 1;
+  bool passed = 2;
+  string detail = 3; // e.g. "HTTP 200 OK in 45ms" or "Connection refused"
   uint32 duration_ms = 4;
 }

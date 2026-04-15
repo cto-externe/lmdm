@@ -7,10 +7,10 @@ syntax = "proto3";
 
 package lmdm.v1;
 
-option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
-
 import "google/protobuf/timestamp.proto";
 import "lmdm/v1/common.proto";
+
+option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
 
 // ---------------------------------------------------------------------------
 // Printer Discovery Report (Agent → Server via NATS)
@@ -19,7 +19,7 @@ import "lmdm/v1/common.proto";
 
 message PrinterReport {
   DeviceID device_id = 1; // The agent that performed the scan.
-  SiteID   site_id   = 2;
+  SiteID site_id = 2;
 
   google.protobuf.Timestamp timestamp = 3;
 
@@ -29,15 +29,15 @@ message PrinterReport {
 
 message DiscoveredPrinter {
   // Identification.
-  string name            = 1; // mDNS name or SNMP sysName.
-  string manufacturer    = 2;
-  string model           = 3;
-  string serial_number   = 4;
+  string name = 1; // mDNS name or SNMP sysName.
+  string manufacturer = 2;
+  string model = 3;
+  string serial_number = 4;
   string firmware_version = 5;
 
   // Network.
   string ip_address = 6;
-  string hostname   = 7; // DNS hostname if resolvable.
+  string hostname = 7; // DNS hostname if resolvable.
   string mac_address = 8;
 
   // Discovery method.
@@ -60,41 +60,41 @@ message DiscoveredPrinter {
 }
 
 message PrinterCapabilities {
-  bool   color           = 1;
-  bool   duplex          = 2;
-  bool   staple          = 3;
-  bool   scan            = 4;
-  bool   fax             = 5;
-  bool   driverless      = 6; // IPP Everywhere / AirPrint (no PPD needed)
+  bool color = 1;
+  bool duplex = 2;
+  bool staple = 3;
+  bool scan = 4;
+  bool fax = 5;
+  bool driverless = 6; // IPP Everywhere / AirPrint (no PPD needed)
   repeated string paper_sizes = 7; // "A4", "A3", "Letter", etc.
-  uint32 max_dpi         = 8;
+  uint32 max_dpi = 8;
 }
 
 message Consumable {
-  string name       = 1; // "Black Toner", "Cyan Ink", "Drum Unit", "Waste Toner"
-  string type       = 2; // "toner", "ink", "drum", "waste", "fuser", "paper"
-  string color      = 3; // "black", "cyan", "magenta", "yellow", "" (for non-color items)
-  int32  level_pct  = 4; // 0-100, -1 if unknown, -2 if "OK" (binary sensors)
-  string status     = 5; // "ok", "low", "empty", "unknown"
+  string name = 1; // "Black Toner", "Cyan Ink", "Drum Unit", "Waste Toner"
+  string type = 2; // "toner", "ink", "drum", "waste", "fuser", "paper"
+  string color = 3; // "black", "cyan", "magenta", "yellow", "" (for non-color items)
+  int32 level_pct = 4; // 0-100, -1 if unknown, -2 if "OK" (binary sensors)
+  string status = 5; // "ok", "low", "empty", "unknown"
 }
 
 message PageCounters {
-  uint64 total       = 1;
-  uint64 color       = 2;
-  uint64 monochrome  = 3;
-  uint64 duplex      = 4;
+  uint64 total = 1;
+  uint64 color = 2;
+  uint64 monochrome = 3;
+  uint64 duplex = 4;
   uint64 total_scans = 5;
 }
 
 message PrinterStatus {
-  string state   = 1; // "idle", "printing", "error", "offline"
-  string detail  = 2; // "paper jam in tray 2", "door open", etc.
+  string state = 1; // "idle", "printing", "error", "offline"
+  string detail = 2; // "paper jam in tray 2", "door open", etc.
 
   repeated PrinterAlert alerts = 3;
 }
 
 message PrinterAlert {
   string severity = 1; // "warning", "critical"
-  string message  = 2; // "Toner low: Black", "Paper jam", "Cover open"
-  string code     = 3; // SNMP alert code if available.
+  string message = 2; // "Toner low: Black", "Paper jam", "Cover open"
+  string code = 3; // SNMP alert code if available.
 }

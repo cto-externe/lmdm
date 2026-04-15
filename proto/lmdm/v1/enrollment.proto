@@ -6,10 +6,10 @@ syntax = "proto3";
 
 package lmdm.v1;
 
-option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
-
 import "google/protobuf/timestamp.proto";
 import "lmdm/v1/common.proto";
+
+option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
 
 // ---------------------------------------------------------------------------
 // gRPC Service
@@ -48,15 +48,15 @@ message EnrollRequest {
 }
 
 message HardwareFingerprint {
-  string hostname        = 1;
-  string serial_number   = 2;  // DMI system serial
-  string manufacturer    = 3;  // DMI system manufacturer
-  string model           = 4;  // DMI product name
-  string cpu_model       = 5;
-  uint64 ram_total_mb    = 6;
-  uint64 disk_total_gb   = 7;
-  string arch            = 8;  // amd64, arm64
-  
+  string hostname = 1;
+  string serial_number = 2; // DMI system serial
+  string manufacturer = 3; // DMI system manufacturer
+  string model = 4; // DMI product name
+  string cpu_model = 5;
+  uint64 ram_total_mb = 6;
+  uint64 disk_total_gb = 7;
+  string arch = 8; // amd64, arm64
+
   OSInfo os = 9;
 
   // TPM info (if available).
@@ -99,9 +99,9 @@ message EnrollResponse {
 }
 
 message ServerEndpoints {
-  string nats_url  = 1;  // "tls://fleet.example.com:4222"
-  string grpc_url  = 2;  // "fleet.example.com:50051"
-  string api_url   = 3;  // "https://fleet.example.com"
+  string nats_url = 1; // "tls://fleet.example.com:4222"
+  string grpc_url = 2; // "fleet.example.com:50051"
+  string api_url = 3; // "https://fleet.example.com"
 }
 
 // ---------------------------------------------------------------------------
@@ -109,11 +109,11 @@ message ServerEndpoints {
 // ---------------------------------------------------------------------------
 
 message RenewCertificateRequest {
-  DeviceID        device_id      = 1;
+  DeviceID device_id = 1;
   HybridPublicKey new_public_key = 2; // Agent may rotate its keypair
 }
 
 message RenewCertificateResponse {
-  bytes new_certificate                = 1;
+  bytes new_certificate = 1;
   google.protobuf.Timestamp expires_at = 2;
 }

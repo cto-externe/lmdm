@@ -7,20 +7,20 @@ syntax = "proto3";
 
 package lmdm.v1;
 
-option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
-
 import "google/protobuf/timestamp.proto";
 import "lmdm/v1/common.proto";
+
+option go_package = "github.com/cto-externe/lmdm/gen/go/lmdm/v1;lmdmv1";
 
 // AgentIdentityCert is the canonical record of an enrolled agent. After
 // signing, its serialized bytes + the HybridSignature form a SignedAgentCert.
 message AgentIdentityCert {
-  DeviceID         device_id        = 1;
-  TenantID         tenant_id        = 2;
-  SiteID           site_id          = 3;
-  repeated string  group_ids        = 4;
-  HybridPublicKey  agent_public_key = 5;
-  google.protobuf.Timestamp issued_at  = 6;
+  DeviceID device_id = 1;
+  TenantID tenant_id = 2;
+  SiteID site_id = 3;
+  repeated string group_ids = 4;
+  HybridPublicKey agent_public_key = 5;
+  google.protobuf.Timestamp issued_at = 6;
   google.protobuf.Timestamp expires_at = 7;
 
   // Cert serial — used for revocation lookups. UUIDv4 string.
@@ -31,6 +31,6 @@ message AgentIdentityCert {
 // server's hybrid signature over those bytes. Verifiers MUST re-verify the
 // signature before trusting any field.
 message SignedAgentCert {
-  bytes           cert_bytes = 1; // marshal(AgentIdentityCert) using deterministic encoding
-  HybridSignature signature  = 2;
+  bytes cert_bytes = 1; // marshal(AgentIdentityCert) using deterministic encoding
+  HybridSignature signature = 2;
 }

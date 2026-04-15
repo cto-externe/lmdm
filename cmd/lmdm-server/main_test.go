@@ -23,8 +23,10 @@ import (
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/agentbus"
 	"github.com/cto-externe/lmdm/internal/agentenroll"
+	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
 	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/natsbus"
@@ -410,4 +412,138 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("device.last_seen never reflected the heartbeat within 5s")
+}
+
+func TestIntegrationInventoryLoop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	pg, err := postgres.Run(ctx,
+		"postgres:16-alpine",
+		postgres.WithDatabase("lmdm"),
+		postgres.WithUsername("lmdm"),
+		postgres.WithPassword("lmdm"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("5432/tcp").WithStartupTimeout(30*time.Second)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, _ := pg.ConnectionString(ctx, "sslmode=disable")
+	if err := db.MigrateUp(dsn); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	natsReq := testcontainers.ContainerRequest{
+		Image:        "nats:2.10-alpine",
+		ExposedPorts: []string{"4222/tcp"},
+		Cmd:          []string{"-js"},
+		WaitingFor:   wait.ForLog("Server is ready").WithStartupTimeout(30 * time.Second),
+	}
+	natsC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: natsReq, Started: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = natsC.Terminate(ctx) })
+	natsHost, _ := natsC.Host(ctx)
+	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
+	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
+
+	bus, err := natsbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+	keyPath := t.TempDir() + "/server.key"
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	plaintext, _, err := tokenRepo.Create(ctx, tokens.CreateRequest{
+		TenantID:    tenantID,
+		Description: "e2e inv",
+		MaxUses:     1,
+		TTL:         time.Hour,
+		CreatedBy:   "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httpAddr := freeAddr(t)
+	grpcAddr := freeAddr(t)
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
+
+	invIng := inventoryingester.New(bus, deviceRepo)
+	if err := invIng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer invIng.Stop()
+
+	errs := srv.Start()
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
+	select {
+	case e := <-errs:
+		t.Fatalf("server failed: %v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Agent-side: enroll, run the inventory runner briefly.
+	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
+	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-e2e-inv", agentPub, &lmdmv1.HardwareFingerprint{
+		Hostname: "PC-INV-E2E",
+	})
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+
+	agentBus, err := agentbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agentBus.Close()
+
+	runner := agentinventoryrunner.New(agentBus, res.DeviceID, 250*time.Millisecond)
+	runCtx, runCancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer runCancel()
+	go func() { _ = runner.Run(runCtx) }()
+
+	// Poll DB until we see a row in device_inventory for this device.
+	deviceUUID := uuid.MustParse(res.DeviceID)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var id uuid.UUID
+		err := pool.QueryRow(ctx,
+			`SELECT device_id FROM device_inventory WHERE device_id = $1`, deviceUUID,
+		).Scan(&id)
+		if err == nil && id == deviceUUID {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("device_inventory was not populated within 5s")
 }

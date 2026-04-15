@@ -59,7 +59,6 @@ curl -s http://localhost:8080/healthz | jq
 - `gen/go/lmdm/v1/` — code Go généré (commité)
 - `internal/` — code applicatif (non exposé en tant que bibliothèque)
 - `cmd/lmdm-server/` — entrypoint serveur
-- `docs/` — documentation (incluant les plans de développement)
 
 ## Tests
 
@@ -68,11 +67,3 @@ make test-unit         # rapide, pas de Docker
 make test-integration  # utilise testcontainers
 make lint              # golangci-lint + buf lint
 ```
-
-## Développement
-
-Voir [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
-## Plans
-
-Les plans d'implémentation sont dans [docs/superpowers/plans/](docs/superpowers/plans/).

@@ -27,3 +27,9 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Local-only working notes (architecture spec, plans, dev guide)
+# Not for distribution — kept on disk per the author's preference.
+/ARCHITECTURE_SPEC_V1.md
+/Protocol-Buffer-Definitions.md
+/docs/

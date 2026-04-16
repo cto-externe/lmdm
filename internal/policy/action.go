@@ -55,6 +55,9 @@ func (r *Registry) Lookup(typeName string) (ActionConstructor, bool) {
 // Called once at agent startup. Action types are registered in Tasks 3-4.
 func DefaultRegistry() *Registry {
 	r := NewRegistry()
-	// Action types will be registered here once implemented.
+	r.Register("package_ensure", NewPackageEnsure)
+	r.Register("service_ensure", NewServiceEnsure)
+	r.Register("file_content", NewFileContent)
+	r.Register("sysctl", NewSysctl)
 	return r
 }

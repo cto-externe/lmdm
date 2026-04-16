@@ -31,11 +31,15 @@ Thumbs.db
 # Claude Code local settings (IDE-specific, per-user)
 .claude/
 
-# Local-only working notes (architecture spec, plans, dev guide)
-# Not for distribution — kept on disk per the author's preference.
+# Local-only working notes (architecture spec, protocol doc)
 /ARCHITECTURE_SPEC_V1.md
 /Protocol-Buffer-Definitions.md
-/docs/
+
+# Implementation plans (internal tooling, not distributed)
+/.plans/
+
+# Dev guide (local-only, was previously committed then untracked)
+/docs/DEVELOPMENT.md
 
 # Compiled binaries at repo root (from `go build ./cmd/...` without -o)
 /lmdm-agent

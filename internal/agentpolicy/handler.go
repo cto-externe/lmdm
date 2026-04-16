@@ -29,17 +29,19 @@ type Handler struct {
 	registry  *policy.Registry
 	deviceID  string
 	snapRoot  string
+	store     *ProfileStore
 	sub       *nats.Subscription
 }
 
 // NewHandler wires a Handler.
-func NewHandler(nc *nats.Conn, serverPub *pqhybrid.SigningPublicKey, reg *policy.Registry, deviceID, snapRoot string) *Handler {
+func NewHandler(nc *nats.Conn, serverPub *pqhybrid.SigningPublicKey, reg *policy.Registry, deviceID, snapRoot string, store *ProfileStore) *Handler {
 	return &Handler{
 		nc:        nc,
 		serverPub: serverPub,
 		registry:  reg,
 		deviceID:  deviceID,
 		snapRoot:  snapRoot,
+		store:     store,
 	}
 }
 
@@ -95,6 +97,10 @@ func (h *Handler) handleMessage(msg *nats.Msg) {
 	}
 
 	result := policy.Execute(ctx, actions, h.snapRoot, deploymentID)
+
+	if result.AllCompliant && parsed.ProfileID != "" {
+		_ = h.store.Save(parsed.ProfileID, parsed.ProfileContent)
+	}
 
 	h.publishCompliance(result)
 }

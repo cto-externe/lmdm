@@ -142,12 +142,14 @@ func cmdRun(args []string) error {
 
 	// Policy handler: subscribe to commands, apply profiles, publish compliance.
 	snapRoot := filepath.Join(*dataDir, "snapshots")
+	profileStore := agentpolicy.NewProfileStore(filepath.Join(*dataDir, "profiles"))
 	policyHandler := agentpolicy.NewHandler(
 		bus.NC(),
 		id.ServerPub,
 		policy.DefaultRegistry(),
 		deviceID,
 		snapRoot,
+		profileStore,
 	)
 	if err := policyHandler.Start(); err != nil {
 		return fmt.Errorf("policy handler: %w", err)

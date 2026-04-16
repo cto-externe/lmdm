@@ -142,6 +142,42 @@ func (r *Repository) Revoke(ctx context.Context, tenantID, tokenID uuid.UUID) er
 	})
 }
 
+// List returns all tokens for a tenant (most recent first, limit 100).
+// Secret hashes are NOT included — the plaintext was shown once at creation.
+func (r *Repository) List(ctx context.Context, tenantID uuid.UUID) ([]Token, error) {
+	const q = `
+		SELECT id, tenant_id, description, group_ids, site_id, max_uses, used_count,
+		       expires_at, revoked_at, created_at, created_by
+		  FROM enrollment_tokens
+		 ORDER BY created_at DESC
+		 LIMIT 100
+	`
+	var out []Token
+	err := r.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, q)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var t Token
+			if err := rows.Scan(
+				&t.ID, &t.TenantID, &t.Description, &t.GroupIDs, &t.SiteID,
+				&t.MaxUses, &t.UsedCount, &t.ExpiresAt, &t.RevokedAt,
+				&t.CreatedAt, &t.CreatedBy,
+			); err != nil {
+				return err
+			}
+			out = append(out, t)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tokens: list: %w", err)
+	}
+	return out, nil
+}
+
 // withTenant runs fn inside a transaction with `SET LOCAL lmdm.tenant_id`,
 // the production pattern for RLS-scoped operations.
 func (r *Repository) withTenant(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {

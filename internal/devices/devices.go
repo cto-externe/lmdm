@@ -52,3 +52,10 @@ type Device struct {
 	CertSerial         *string
 	AgentVersion       *string
 }
+
+// ListFilter holds optional filters for device listing.
+type ListFilter struct {
+	Status   string // "online", "offline", etc. Empty = all.
+	Type     string // "workstation", "printer", etc. Empty = all.
+	Hostname string // Substring match (ILIKE). Empty = all.
+}

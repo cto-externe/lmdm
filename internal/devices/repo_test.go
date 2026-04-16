@@ -5,6 +5,7 @@ package devices
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -201,6 +202,41 @@ func TestIntegrationRLSIsolatesDevices(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("tenant B sees %d devices, want 0 (RLS leak!)", count)
+	}
+}
+
+func TestIntegrationListDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	tenantID := uuid.MustParse(defaultTenant)
+	for i := 0; i < 3; i++ {
+		_ = r.Insert(context.Background(), &Device{
+			ID: uuid.New(), TenantID: tenantID, Type: TypeWorkstation,
+			Hostname:           fmt.Sprintf("PC-%03d", i),
+			AgentPubkeyEd25519: []byte(fmt.Sprintf("ed-%d", i)),
+			AgentPubkeyMLDSA:   []byte(fmt.Sprintf("ml-%d", i)),
+		})
+	}
+
+	devices, total, err := r.ListDevices(context.Background(), tenantID, ListFilter{})
+	if err != nil {
+		t.Fatalf("ListDevices: %v", err)
+	}
+	if total != 3 || len(devices) != 3 {
+		t.Errorf("total=%d len=%d, want 3", total, len(devices))
+	}
+
+	// Filter by hostname substring.
+	_, total, err = r.ListDevices(context.Background(), tenantID, ListFilter{Hostname: "PC-001"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Errorf("filtered total = %d, want 1", total)
 	}
 }
 

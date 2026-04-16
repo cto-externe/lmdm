@@ -184,6 +184,42 @@ func (r *Repository) ListAssigned(ctx context.Context, tenantID uuid.UUID, targe
 	return out, nil
 }
 
+// List returns all profiles for a tenant (most recent first, limit 100).
+func (r *Repository) List(ctx context.Context, tenantID uuid.UUID) ([]Profile, error) {
+	const q = `
+		SELECT id, tenant_id, name, version, description, yaml_content, json_content,
+		       signature_ed25519, signature_mldsa, source, locked, created_at
+		  FROM profiles
+		 ORDER BY created_at DESC
+		 LIMIT 100
+	`
+	var out []Profile
+	err := r.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, q)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var p Profile
+			if err := rows.Scan(
+				&p.ID, &p.TenantID, &p.Name, &p.Version, &p.Description,
+				&p.YAMLContent, &p.JSONContent,
+				&p.SignatureEd25519, &p.SignatureMLDSA,
+				&p.Source, &p.Locked, &p.CreatedAt,
+			); err != nil {
+				return err
+			}
+			out = append(out, p)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("profiles: list: %w", err)
+	}
+	return out, nil
+}
+
 // Pool returns the underlying pool for callers that bypass RLS.
 func (r *Repository) Pool() *db.Pool { return r.pool }
 

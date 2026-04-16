@@ -113,6 +113,7 @@ func cmdRun(args []string) error {
 	natsURL := fs.String("nats-url", "", "NATS connection URL")
 	interval := fs.Duration("interval", 60*time.Second, "heartbeat interval")
 	inventoryInterval := fs.Duration("inventory-interval", time.Hour, "inventory reporting interval")
+	complianceInterval := fs.Duration("compliance-interval", time.Hour, "compliance drift check interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -156,18 +157,20 @@ func cmdRun(args []string) error {
 	}
 	defer policyHandler.Stop()
 
-	// Run heartbeat + inventory loops concurrently; first error wins, but
-	// both are expected to return nil on ctx cancel.
+	// Run heartbeat + inventory + drift loops concurrently; first error wins,
+	// but all are expected to return nil on ctx cancel.
 	heartbeat := agentrunner.New(bus, deviceID, agentVersion, *interval)
 	inventory := agentinventoryrunner.New(bus, deviceID, *inventoryInterval)
+	driftRunner := agentpolicy.NewDriftRunner(bus, policy.DefaultRegistry(), profileStore, deviceID, *complianceInterval)
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() { errCh <- heartbeat.Run(ctx) }()
 	go func() { errCh <- inventory.Run(ctx) }()
+	go func() { errCh <- driftRunner.Run(ctx) }()
 
-	// Wait for both goroutines to finish.
+	// Wait for all goroutines to finish.
 	var firstErr error
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		if err := <-errCh; err != nil && firstErr == nil {
 			firstErr = err
 			cancel()

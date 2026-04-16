@@ -23,6 +23,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/agentbus"
 	"github.com/cto-externe/lmdm/internal/agentenroll"
@@ -36,6 +38,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/natsbus"
+	"github.com/cto-externe/lmdm/internal/patchingester"
 	"github.com/cto-externe/lmdm/internal/policy"
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
 	profilesRepo "github.com/cto-externe/lmdm/internal/profiles"
@@ -862,4 +865,155 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 		body, _ := io.ReadAll(resp4.Body)
 		t.Fatalf("GET /tokens: %d %s", resp4.StatusCode, body)
 	}
+}
+
+func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	pg, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("lmdm"), postgres.WithUsername("lmdm"), postgres.WithPassword("lmdm"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("5432/tcp").WithStartupTimeout(30*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, _ := pg.ConnectionString(ctx, "sslmode=disable")
+	if err := db.MigrateUp(dsn); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	natsReq := testcontainers.ContainerRequest{
+		Image: "nats:2.10-alpine", ExposedPorts: []string{"4222/tcp"},
+		Cmd: []string{"-js"}, WaitingFor: wait.ForLog("Server is ready").WithStartupTimeout(30 * time.Second),
+	}
+	natsC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: natsReq, Started: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = natsC.Terminate(ctx) })
+	natsHost, _ := natsC.Host(ctx)
+	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
+	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
+
+	bus, err := natsbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+	keyPath := t.TempDir() + "/server.key"
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	plaintext, _, err := tokenRepo.Create(ctx, tokens.CreateRequest{
+		TenantID: tenantID, Description: "patch-e2e", MaxUses: 1, TTL: time.Hour, CreatedBy: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build server with enrollment + REST API + patch ingester.
+	httpAddr := freeAddr(t)
+	grpcAddr := freeAddr(t)
+	mux := http.NewServeMux()
+	mux.Handle("/api/", api.Router(&api.Deps{
+		Pool:     pool,
+		Devices:  deviceRepo,
+		Tokens:   tokenRepo,
+		Profiles: profilesRepo.NewRepository(pool, serverPriv),
+		NATS:     bus.NC(),
+		TenantID: tenantID,
+	}))
+	srv, err := server.New(httpAddr, grpcAddr, mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub,
+		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour)
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
+
+	patchIng := patchingester.New(bus, pool)
+	if err := patchIng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer patchIng.Stop()
+
+	errs := srv.Start()
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
+	select {
+	case e := <-errs:
+		t.Fatalf("server: %v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Enroll a device.
+	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
+	enrollRes, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-patch",
+		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-PATCH-E2E"})
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+
+	// Publish a mock PatchReport on NATS.
+	agentNC, err := nats.Connect(natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agentNC.Close()
+
+	report := &lmdmv1.PatchReport{
+		DeviceId:  &lmdmv1.DeviceID{Id: enrollRes.DeviceID},
+		Timestamp: timestamppb.New(time.Now().UTC()),
+		Updates: []*lmdmv1.AvailableUpdate{
+			{Name: "openssl", CurrentVersion: "3.0.2-15", AvailableVersion: "3.0.2-16", Security: true, Source: "apt"},
+		},
+		RebootRequired: false,
+	}
+	reportData, err := proto.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agentNC.Publish("fleet.agent."+enrollRes.DeviceID+".patches", reportData); err != nil {
+		t.Fatal(err)
+	}
+	_ = agentNC.Flush()
+
+	baseURL := "http://" + httpAddr
+
+	// Poll GET /api/v1/devices/<id>/updates until total == 1.
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(baseURL + "/api/v1/devices/" + enrollRes.DeviceID + "/updates") //nolint:gosec
+		if err == nil {
+			var body struct {
+				Data  []json.RawMessage `json:"data"`
+				Total int               `json:"total"`
+			}
+			_ = json.NewDecoder(resp.Body).Decode(&body)
+			_ = resp.Body.Close()
+			if body.Total == 1 {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("updates not visible via REST API within 5s")
 }

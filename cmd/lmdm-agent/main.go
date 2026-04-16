@@ -8,13 +8,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,8 +29,10 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentenroll"
 	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentkey"
+	"github.com/cto-externe/lmdm/internal/agentpatchrunner"
 	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
+	"github.com/cto-externe/lmdm/internal/distro"
 	"github.com/cto-externe/lmdm/internal/policy"
 )
 
@@ -114,6 +119,7 @@ func cmdRun(args []string) error {
 	interval := fs.Duration("interval", 60*time.Second, "heartbeat interval")
 	inventoryInterval := fs.Duration("inventory-interval", time.Hour, "inventory reporting interval")
 	complianceInterval := fs.Duration("compliance-interval", time.Hour, "compliance drift check interval")
+	patchInterval := fs.Duration("patch-interval", 6*time.Hour, "patch detection interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -130,6 +136,15 @@ func cmdRun(args []string) error {
 	deviceID, err := deviceIDFromCert(id.SignedCert)
 	if err != nil {
 		return fmt.Errorf("read device_id from cert: %w", err)
+	}
+
+	// Detect OS family for patch management.
+	osFamily := detectOSFamily()
+	var pm distro.PatchManager
+	if mgr, err := distro.NewPatchManager(osFamily); err != nil {
+		slog.Warn("patch manager not available", "family", osFamily, "err", err)
+	} else {
+		pm = mgr
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -151,7 +166,7 @@ func cmdRun(args []string) error {
 		deviceID,
 		snapRoot,
 		profileStore,
-		nil, // PatchManager wired in Task 9
+		pm,
 	)
 	if err := policyHandler.Start(); err != nil {
 		return fmt.Errorf("policy handler: %w", err)
@@ -164,20 +179,58 @@ func cmdRun(args []string) error {
 	inventory := agentinventoryrunner.New(bus, deviceID, *inventoryInterval)
 	driftRunner := agentpolicy.NewDriftRunner(bus, policy.DefaultRegistry(), profileStore, deviceID, *complianceInterval)
 
-	errCh := make(chan error, 3)
+	goroutines := 3 // heartbeat + inventory + drift
+	if pm != nil {
+		goroutines++
+	}
+	errCh := make(chan error, goroutines)
 	go func() { errCh <- heartbeat.Run(ctx) }()
 	go func() { errCh <- inventory.Run(ctx) }()
 	go func() { errCh <- driftRunner.Run(ctx) }()
+	if pm != nil {
+		patchRunner := agentpatchrunner.New(bus, pm, deviceID, *patchInterval)
+		go func() { errCh <- patchRunner.Run(ctx) }()
+	}
 
 	// Wait for all goroutines to finish.
 	var firstErr error
-	for i := 0; i < 3; i++ {
+	for i := 0; i < goroutines; i++ {
 		if err := <-errCh; err != nil && firstErr == nil {
 			firstErr = err
 			cancel()
 		}
 	}
 	return firstErr
+}
+
+func detectOSFamily() string {
+	f, err := os.Open("/etc/os-release")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	var id, idLike string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "ID=") {
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), `"`)
+		}
+		if strings.HasPrefix(line, "ID_LIKE=") {
+			idLike = strings.Trim(strings.TrimPrefix(line, "ID_LIKE="), `"`)
+		}
+	}
+	all := strings.ToLower(id + " " + idLike)
+	switch {
+	case strings.Contains(all, "debian") || strings.Contains(all, "ubuntu") || strings.Contains(all, "mint"):
+		return "debian"
+	case strings.Contains(all, "rhel") || strings.Contains(all, "fedora") || strings.Contains(all, "centos") || strings.Contains(all, "alma") || strings.Contains(all, "rocky"):
+		return "rhel"
+	case strings.Contains(all, "nixos"):
+		return "nixos"
+	default:
+		return id
+	}
 }
 
 // deviceIDFromCert extracts the device_id field from the SignedAgentCert.

@@ -20,6 +20,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/api"
 	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/config"
+	"github.com/cto-externe/lmdm/internal/patchingester"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
@@ -108,6 +109,13 @@ func run() error {
 	}
 	defer compIng.Stop()
 	slog.Info("compliance ingester started")
+
+	patchIng := patchingester.New(bus, pool)
+	if err := patchIng.Start(ctx); err != nil {
+		return fmt.Errorf("patch ingester: %w", err)
+	}
+	defer patchIng.Stop()
+	slog.Info("patch ingester started")
 
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,

@@ -14,7 +14,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/api"
 	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/config"
 	"github.com/cto-externe/lmdm/internal/db"
@@ -23,6 +26,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
+	"github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
 	"github.com/cto-externe/lmdm/internal/statusingester"
@@ -128,6 +132,17 @@ func run() error {
 			return store.Ping(ctx)
 		}),
 	}))
+
+	// REST API — all endpoints under /api/v1/.
+	apiDeps := &api.Deps{
+		Pool:     pool,
+		Devices:  deviceRepo,
+		Tokens:   tokenRepo,
+		Profiles: profiles.NewRepository(pool, serverPriv),
+		NATS:     bus.NC(),
+		TenantID: uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+	}
+	mux.Handle("/api/", api.Router(apiDeps))
 
 	srv, err := server.New(cfg.HTTPAddr, cfg.GRPCAddr, mux)
 	if err != nil {

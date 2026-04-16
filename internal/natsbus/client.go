@@ -56,6 +56,10 @@ func Connect(_ context.Context, url string) (*Bus, error) {
 // packages that need to create their own consumers.
 func (b *Bus) JetStream() jetstream.JetStream { return b.js }
 
+// NC returns the underlying *nats.Conn. Used by the REST API to publish
+// commands (e.g., ApplyProfileCommand). Use sparingly.
+func (b *Bus) NC() *nats.Conn { return b.nc }
+
 // Close drains and closes the underlying NATS connection.
 func (b *Bus) Close() {
 	if b == nil || b.nc == nil {

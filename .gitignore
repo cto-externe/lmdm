@@ -36,3 +36,9 @@ Thumbs.db
 /ARCHITECTURE_SPEC_V1.md
 /Protocol-Buffer-Definitions.md
 /docs/
+
+# Compiled binaries at repo root (from `go build ./cmd/...` without -o)
+/lmdm-agent
+/lmdm-server
+/lmdm-token
+/lmdm-profile

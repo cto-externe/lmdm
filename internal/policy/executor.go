@@ -6,6 +6,7 @@ package policy
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 )
 
@@ -78,6 +79,10 @@ func Execute(ctx context.Context, actions []TypedAction, snapRoot, deploymentID 
 			results = append(results, ActionResult{
 				Type: ta.Type, Error: err.Error(),
 			})
+			// Auto-rollback: attempt to restore the system to pre-apply state.
+			if rbErr := Rollback(ctx, snapDir); rbErr != nil {
+				slog.Warn("executor: auto-rollback failed", "err", rbErr)
+			}
 			return ExecutionResult{
 				AllCompliant: false,
 				Error:        fmt.Sprintf("apply %s: %v", ta.Type, err),

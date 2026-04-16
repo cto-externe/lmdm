@@ -47,9 +47,4 @@ func Router(d *Deps) http.Handler {
 }
 
 // Stubs for not-yet-implemented endpoints. Return 501 Not Implemented.
-func (d *Deps) handleListProfiles(w http.ResponseWriter, _ *http.Request)  { writeError(w, 501, "not implemented") }
-func (d *Deps) handleGetProfile(w http.ResponseWriter, _ *http.Request)    { writeError(w, 501, "not implemented") }
-func (d *Deps) handleCreateProfile(w http.ResponseWriter, _ *http.Request) { writeError(w, 501, "not implemented") }
 func (d *Deps) handleAssignProfile(w http.ResponseWriter, _ *http.Request) { writeError(w, 501, "not implemented") }
-func (d *Deps) handleCreateToken(w http.ResponseWriter, _ *http.Request)   { writeError(w, 501, "not implemented") }
-func (d *Deps) handleListTokens(w http.ResponseWriter, _ *http.Request)    { writeError(w, 501, "not implemented") }

@@ -210,3 +210,23 @@ message ListeningPort {
   string process = 4; // "sshd", "chronyd"
   uint32 pid = 5;
 }
+
+// ---------------------------------------------------------------------------
+// Patch Report (Agent → Server via NATS)
+// Subject: fleet.agent.{device_id}.patches
+// ---------------------------------------------------------------------------
+
+message PatchReport {
+  DeviceID device_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  repeated AvailableUpdate updates = 3;
+  bool reboot_required = 4;
+}
+
+message AvailableUpdate {
+  string name = 1;
+  string current_version = 2;
+  string available_version = 3;
+  bool security = 4;
+  string source = 5; // "apt", "dnf"
+}

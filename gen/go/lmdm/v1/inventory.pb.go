@@ -1389,6 +1389,150 @@ func (x *ListeningPort) GetPid() uint32 {
 	return 0
 }
 
+type PatchReport struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId       *DeviceID              `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	Timestamp      *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Updates        []*AvailableUpdate     `protobuf:"bytes,3,rep,name=updates,proto3" json:"updates,omitempty"`
+	RebootRequired bool                   `protobuf:"varint,4,opt,name=reboot_required,json=rebootRequired,proto3" json:"reboot_required,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PatchReport) Reset() {
+	*x = PatchReport{}
+	mi := &file_lmdm_v1_inventory_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PatchReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PatchReport) ProtoMessage() {}
+
+func (x *PatchReport) ProtoReflect() protoreflect.Message {
+	mi := &file_lmdm_v1_inventory_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PatchReport.ProtoReflect.Descriptor instead.
+func (*PatchReport) Descriptor() ([]byte, []int) {
+	return file_lmdm_v1_inventory_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *PatchReport) GetDeviceId() *DeviceID {
+	if x != nil {
+		return x.DeviceId
+	}
+	return nil
+}
+
+func (x *PatchReport) GetTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
+}
+
+func (x *PatchReport) GetUpdates() []*AvailableUpdate {
+	if x != nil {
+		return x.Updates
+	}
+	return nil
+}
+
+func (x *PatchReport) GetRebootRequired() bool {
+	if x != nil {
+		return x.RebootRequired
+	}
+	return false
+}
+
+type AvailableUpdate struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Name             string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	CurrentVersion   string                 `protobuf:"bytes,2,opt,name=current_version,json=currentVersion,proto3" json:"current_version,omitempty"`
+	AvailableVersion string                 `protobuf:"bytes,3,opt,name=available_version,json=availableVersion,proto3" json:"available_version,omitempty"`
+	Security         bool                   `protobuf:"varint,4,opt,name=security,proto3" json:"security,omitempty"`
+	Source           string                 `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"` // "apt", "dnf"
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AvailableUpdate) Reset() {
+	*x = AvailableUpdate{}
+	mi := &file_lmdm_v1_inventory_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AvailableUpdate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AvailableUpdate) ProtoMessage() {}
+
+func (x *AvailableUpdate) ProtoReflect() protoreflect.Message {
+	mi := &file_lmdm_v1_inventory_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AvailableUpdate.ProtoReflect.Descriptor instead.
+func (*AvailableUpdate) Descriptor() ([]byte, []int) {
+	return file_lmdm_v1_inventory_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AvailableUpdate) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AvailableUpdate) GetCurrentVersion() string {
+	if x != nil {
+		return x.CurrentVersion
+	}
+	return ""
+}
+
+func (x *AvailableUpdate) GetAvailableVersion() string {
+	if x != nil {
+		return x.AvailableVersion
+	}
+	return ""
+}
+
+func (x *AvailableUpdate) GetSecurity() bool {
+	if x != nil {
+		return x.Security
+	}
+	return false
+}
+
+func (x *AvailableUpdate) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
 var File_lmdm_v1_inventory_proto protoreflect.FileDescriptor
 
 var file_lmdm_v1_inventory_proto_rawDesc = string([]byte{
@@ -1613,11 +1757,36 @@ var file_lmdm_v1_inventory_proto_rawDesc = string([]byte{
 	0x70, 0x6f, 0x72, 0x74, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x04, 0x70, 0x6f, 0x72, 0x74,
 	0x12, 0x18, 0x0a, 0x07, 0x70, 0x72, 0x6f, 0x63, 0x65, 0x73, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28,
 	0x09, 0x52, 0x07, 0x70, 0x72, 0x6f, 0x63, 0x65, 0x73, 0x73, 0x12, 0x10, 0x0a, 0x03, 0x70, 0x69,
-	0x64, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x03, 0x70, 0x69, 0x64, 0x42, 0x33, 0x5a, 0x31,
-	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x74, 0x6f, 0x2d, 0x65,
-	0x78, 0x74, 0x65, 0x72, 0x6e, 0x65, 0x2f, 0x6c, 0x6d, 0x64, 0x6d, 0x2f, 0x67, 0x65, 0x6e, 0x2f,
-	0x67, 0x6f, 0x2f, 0x6c, 0x6d, 0x64, 0x6d, 0x2f, 0x76, 0x31, 0x3b, 0x6c, 0x6d, 0x64, 0x6d, 0x76,
-	0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x64, 0x18, 0x05, 0x20, 0x01, 0x28, 0x0d, 0x52, 0x03, 0x70, 0x69, 0x64, 0x22, 0xd4, 0x01, 0x0a,
+	0x0b, 0x50, 0x61, 0x74, 0x63, 0x68, 0x52, 0x65, 0x70, 0x6f, 0x72, 0x74, 0x12, 0x2e, 0x0a, 0x09,
+	0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x11, 0x2e, 0x6c, 0x6d, 0x64, 0x6d, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65,
+	0x49, 0x44, 0x52, 0x08, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x49, 0x64, 0x12, 0x38, 0x0a, 0x09,
+	0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32,
+	0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75,
+	0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x09, 0x74, 0x69, 0x6d,
+	0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x12, 0x32, 0x0a, 0x07, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65,
+	0x73, 0x18, 0x03, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x6c, 0x6d, 0x64, 0x6d, 0x2e, 0x76,
+	0x31, 0x2e, 0x41, 0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x55, 0x70, 0x64, 0x61, 0x74,
+	0x65, 0x52, 0x07, 0x75, 0x70, 0x64, 0x61, 0x74, 0x65, 0x73, 0x12, 0x27, 0x0a, 0x0f, 0x72, 0x65,
+	0x62, 0x6f, 0x6f, 0x74, 0x5f, 0x72, 0x65, 0x71, 0x75, 0x69, 0x72, 0x65, 0x64, 0x18, 0x04, 0x20,
+	0x01, 0x28, 0x08, 0x52, 0x0e, 0x72, 0x65, 0x62, 0x6f, 0x6f, 0x74, 0x52, 0x65, 0x71, 0x75, 0x69,
+	0x72, 0x65, 0x64, 0x22, 0xaf, 0x01, 0x0a, 0x0f, 0x41, 0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c,
+	0x65, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x27, 0x0a, 0x0f, 0x63,
+	0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x02,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x56, 0x65, 0x72,
+	0x73, 0x69, 0x6f, 0x6e, 0x12, 0x2b, 0x0a, 0x11, 0x61, 0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c,
+	0x65, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x10, 0x61, 0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f,
+	0x6e, 0x12, 0x1a, 0x0a, 0x08, 0x73, 0x65, 0x63, 0x75, 0x72, 0x69, 0x74, 0x79, 0x18, 0x04, 0x20,
+	0x01, 0x28, 0x08, 0x52, 0x08, 0x73, 0x65, 0x63, 0x75, 0x72, 0x69, 0x74, 0x79, 0x12, 0x16, 0x0a,
+	0x06, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x73,
+	0x6f, 0x75, 0x72, 0x63, 0x65, 0x42, 0x33, 0x5a, 0x31, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
+	0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x74, 0x6f, 0x2d, 0x65, 0x78, 0x74, 0x65, 0x72, 0x6e, 0x65, 0x2f,
+	0x6c, 0x6d, 0x64, 0x6d, 0x2f, 0x67, 0x65, 0x6e, 0x2f, 0x67, 0x6f, 0x2f, 0x6c, 0x6d, 0x64, 0x6d,
+	0x2f, 0x76, 0x31, 0x3b, 0x6c, 0x6d, 0x64, 0x6d, 0x76, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x33,
 })
 
 var (
@@ -1632,7 +1801,7 @@ func file_lmdm_v1_inventory_proto_rawDescGZIP() []byte {
 	return file_lmdm_v1_inventory_proto_rawDescData
 }
 
-var file_lmdm_v1_inventory_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_lmdm_v1_inventory_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_lmdm_v1_inventory_proto_goTypes = []any{
 	(*InventoryReport)(nil),       // 0: lmdm.v1.InventoryReport
 	(*HardwareInventory)(nil),     // 1: lmdm.v1.HardwareInventory
@@ -1650,15 +1819,17 @@ var file_lmdm_v1_inventory_proto_goTypes = []any{
 	(*SystemdService)(nil),        // 13: lmdm.v1.SystemdService
 	(*NetworkInventory)(nil),      // 14: lmdm.v1.NetworkInventory
 	(*ListeningPort)(nil),         // 15: lmdm.v1.ListeningPort
-	(*DeviceID)(nil),              // 16: lmdm.v1.DeviceID
-	(*timestamppb.Timestamp)(nil), // 17: google.protobuf.Timestamp
-	(*TPMInfo)(nil),               // 18: lmdm.v1.TPMInfo
-	(*OSInfo)(nil),                // 19: lmdm.v1.OSInfo
-	(*NetworkInterface)(nil),      // 20: lmdm.v1.NetworkInterface
+	(*PatchReport)(nil),           // 16: lmdm.v1.PatchReport
+	(*AvailableUpdate)(nil),       // 17: lmdm.v1.AvailableUpdate
+	(*DeviceID)(nil),              // 18: lmdm.v1.DeviceID
+	(*timestamppb.Timestamp)(nil), // 19: google.protobuf.Timestamp
+	(*TPMInfo)(nil),               // 20: lmdm.v1.TPMInfo
+	(*OSInfo)(nil),                // 21: lmdm.v1.OSInfo
+	(*NetworkInterface)(nil),      // 22: lmdm.v1.NetworkInterface
 }
 var file_lmdm_v1_inventory_proto_depIdxs = []int32{
-	16, // 0: lmdm.v1.InventoryReport.device_id:type_name -> lmdm.v1.DeviceID
-	17, // 1: lmdm.v1.InventoryReport.timestamp:type_name -> google.protobuf.Timestamp
+	18, // 0: lmdm.v1.InventoryReport.device_id:type_name -> lmdm.v1.DeviceID
+	19, // 1: lmdm.v1.InventoryReport.timestamp:type_name -> google.protobuf.Timestamp
 	1,  // 2: lmdm.v1.InventoryReport.hardware:type_name -> lmdm.v1.HardwareInventory
 	11, // 3: lmdm.v1.InventoryReport.software:type_name -> lmdm.v1.SoftwareInventory
 	14, // 4: lmdm.v1.InventoryReport.network:type_name -> lmdm.v1.NetworkInventory
@@ -1668,24 +1839,27 @@ var file_lmdm_v1_inventory_proto_depIdxs = []int32{
 	6,  // 8: lmdm.v1.HardwareInventory.disks:type_name -> lmdm.v1.DiskInfo
 	7,  // 9: lmdm.v1.HardwareInventory.gpus:type_name -> lmdm.v1.GPUInfo
 	8,  // 10: lmdm.v1.HardwareInventory.bios:type_name -> lmdm.v1.BIOSInfo
-	18, // 11: lmdm.v1.HardwareInventory.tpm:type_name -> lmdm.v1.TPMInfo
+	20, // 11: lmdm.v1.HardwareInventory.tpm:type_name -> lmdm.v1.TPMInfo
 	9,  // 12: lmdm.v1.HardwareInventory.battery:type_name -> lmdm.v1.BatteryInfo
 	10, // 13: lmdm.v1.HardwareInventory.usb_devices:type_name -> lmdm.v1.USBDevice
 	5,  // 14: lmdm.v1.MemoryInfo.modules:type_name -> lmdm.v1.MemoryModule
-	19, // 15: lmdm.v1.SoftwareInventory.os:type_name -> lmdm.v1.OSInfo
+	21, // 15: lmdm.v1.SoftwareInventory.os:type_name -> lmdm.v1.OSInfo
 	12, // 16: lmdm.v1.SoftwareInventory.packages:type_name -> lmdm.v1.Package
 	12, // 17: lmdm.v1.SoftwareInventory.packages_added:type_name -> lmdm.v1.Package
 	12, // 18: lmdm.v1.SoftwareInventory.packages_removed:type_name -> lmdm.v1.Package
 	13, // 19: lmdm.v1.SoftwareInventory.services:type_name -> lmdm.v1.SystemdService
 	12, // 20: lmdm.v1.SoftwareInventory.flatpaks:type_name -> lmdm.v1.Package
 	12, // 21: lmdm.v1.SoftwareInventory.snaps:type_name -> lmdm.v1.Package
-	20, // 22: lmdm.v1.NetworkInventory.interfaces:type_name -> lmdm.v1.NetworkInterface
+	22, // 22: lmdm.v1.NetworkInventory.interfaces:type_name -> lmdm.v1.NetworkInterface
 	15, // 23: lmdm.v1.NetworkInventory.listening_ports:type_name -> lmdm.v1.ListeningPort
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	18, // 24: lmdm.v1.PatchReport.device_id:type_name -> lmdm.v1.DeviceID
+	19, // 25: lmdm.v1.PatchReport.timestamp:type_name -> google.protobuf.Timestamp
+	17, // 26: lmdm.v1.PatchReport.updates:type_name -> lmdm.v1.AvailableUpdate
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_lmdm_v1_inventory_proto_init() }
@@ -1700,7 +1874,7 @@ func file_lmdm_v1_inventory_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmdm_v1_inventory_proto_rawDesc), len(file_lmdm_v1_inventory_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

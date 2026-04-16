@@ -14,22 +14,27 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nats-io/nats.go"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/agentbus"
 	"github.com/cto-externe/lmdm/internal/agentenroll"
 	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
+	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
+	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/natsbus"
+	"github.com/cto-externe/lmdm/internal/policy"
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
@@ -555,4 +560,141 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("device_inventory JSONB was not populated correctly within 5s")
+}
+
+func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	pg, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("lmdm"), postgres.WithUsername("lmdm"), postgres.WithPassword("lmdm"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("5432/tcp").WithStartupTimeout(30*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, _ := pg.ConnectionString(ctx, "sslmode=disable")
+	if err := db.MigrateUp(dsn); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	natsReq := testcontainers.ContainerRequest{
+		Image: "nats:2.10-alpine", ExposedPorts: []string{"4222/tcp"},
+		Cmd: []string{"-js"}, WaitingFor: wait.ForLog("Server is ready").WithStartupTimeout(30 * time.Second),
+	}
+	natsC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: natsReq, Started: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = natsC.Terminate(ctx) })
+	natsHost, _ := natsC.Host(ctx)
+	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
+	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
+
+	bus, err := natsbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+	keyPath := t.TempDir() + "/server.key"
+	serverPriv, serverPub, _ := serverkey.LoadOrGenerate(keyPath)
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	plaintext, _, _ := tokenRepo.Create(ctx, tokens.CreateRequest{
+		TenantID: tenantID, Description: "policy-e2e", MaxUses: 1, TTL: time.Hour, CreatedBy: "test",
+	})
+
+	httpAddr := freeAddr(t)
+	grpcAddr := freeAddr(t)
+	srv, _ := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
+
+	compIng := complianceingester.New(bus, pool)
+	if err := compIng.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer compIng.Stop()
+
+	errs := srv.Start()
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
+	select {
+	case e := <-errs:
+		t.Fatalf("server: %v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
+	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0", agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-POL"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent side: connect NATS, start policy handler.
+	agentNC, err := nats.Connect(natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer agentNC.Close()
+
+	snapRoot := t.TempDir()
+	handler := agentpolicy.NewHandler(agentNC, res.ServerSigningKey, policy.DefaultRegistry(), res.DeviceID, snapRoot)
+	if err := handler.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer handler.Stop()
+
+	// Send a signed empty profile (no actions = instantly compliant).
+	profileYAML := []byte("kind: profile\nmetadata:\n  name: e2e-test\n  version: \"1.0\"\npolicies: []\n")
+	sig, _ := pqhybrid.Sign(serverPriv, profileYAML)
+	cmdEnv := &lmdmv1.CommandEnvelope{
+		CommandId: "cmd-pol-1",
+		Command: &lmdmv1.CommandEnvelope_ApplyProfile{
+			ApplyProfile: &lmdmv1.ApplyProfileCommand{
+				ProfileId:      &lmdmv1.ProfileID{Id: "prof-e2e"},
+				Version:        "1.0",
+				ProfileContent: profileYAML,
+				ProfileSignature: &lmdmv1.HybridSignature{
+					Ed25519: sig.Ed25519,
+					MlDsa:   sig.MLDSA,
+				},
+			},
+		},
+	}
+	cmdData, _ := proto.Marshal(cmdEnv)
+	if err := agentNC.Publish("fleet.agent."+res.DeviceID+".commands", cmdData); err != nil {
+		t.Fatal(err)
+	}
+	_ = agentNC.Flush()
+
+	// Poll for compliance report in DB.
+	deviceUUID := uuid.MustParse(res.DeviceID)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		var status string
+		err := pool.QueryRow(ctx,
+			`SELECT overall_status FROM compliance_reports WHERE device_id = $1`, deviceUUID,
+		).Scan(&status)
+		if err == nil && status == "compliant" {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("compliance report not found within 5s")
 }

@@ -79,7 +79,7 @@ type StreamSpec struct {
 // policies match the architecture spec §8.3.
 var streams = []StreamSpec{
 	{"COMMANDS", []string{"fleet.agent.*.commands", "fleet.group.*.commands", "fleet.global.commands"}, 7 * 24 * time.Hour},
-	{"INVENTORY", []string{"fleet.agent.*.inventory", "fleet.agent.*.compliance", "fleet.agent.*.printers"}, 24 * time.Hour},
+	{"INVENTORY", []string{"fleet.agent.*.inventory", "fleet.agent.*.compliance", "fleet.agent.*.printers", "fleet.agent.*.patches"}, 24 * time.Hour},
 	{"HEALTH", []string{"fleet.agent.*.health"}, 7 * 24 * time.Hour},
 	{"EVENTS", []string{"fleet.agent.*.events"}, 30 * 24 * time.Hour},
 	{"STATUS", []string{"fleet.agent.*.status"}, 1 * time.Hour},

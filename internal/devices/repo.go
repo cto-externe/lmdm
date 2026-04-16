@@ -210,3 +210,45 @@ func (r *Repository) GetComplianceStatus(ctx context.Context, tenantID, deviceID
 	}
 	return &ci, nil
 }
+
+// UpdateInfo represents one available update for a device.
+type UpdateInfo struct {
+	PackageName      string
+	CurrentVersion   string
+	AvailableVersion string
+	IsSecurity       bool
+	Source           string
+	DetectedAt       time.Time
+}
+
+// ListUpdates returns available updates for a device.
+func (r *Repository) ListUpdates(ctx context.Context, tenantID, deviceID uuid.UUID) ([]UpdateInfo, bool, error) {
+	const q = `SELECT package_name, current_version, available_version, is_security, source, detected_at
+	             FROM device_updates WHERE device_id = $1 ORDER BY is_security DESC, package_name`
+	var updates []UpdateInfo
+	var reboot bool
+
+	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, q, deviceID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var u UpdateInfo
+			if err := rows.Scan(&u.PackageName, &u.CurrentVersion, &u.AvailableVersion, &u.IsSecurity, &u.Source, &u.DetectedAt); err != nil {
+				return err
+			}
+			updates = append(updates, u)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// Check reboot_required on the device.
+		return tx.QueryRow(ctx, `SELECT reboot_required FROM devices WHERE id = $1`, deviceID).Scan(&reboot)
+	})
+	if err != nil {
+		return nil, false, fmt.Errorf("devices: list updates: %w", err)
+	}
+	return updates, reboot, nil
+}

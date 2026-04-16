@@ -42,6 +42,8 @@ func Router(d *Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/profiles/{id}/assign/{deviceID}", d.handleAssignProfile)
 	mux.HandleFunc("POST /api/v1/tokens", d.handleCreateToken)
 	mux.HandleFunc("GET /api/v1/tokens", d.handleListTokens)
+	mux.HandleFunc("GET /api/v1/devices/{id}/updates", d.handleListUpdates)
+	mux.HandleFunc("POST /api/v1/devices/{id}/updates/apply", d.handleApplyUpdates)
 
 	return mux
 }

@@ -46,5 +46,3 @@ func Router(d *Deps) http.Handler {
 	return mux
 }
 
-// Stubs for not-yet-implemented endpoints. Return 501 Not Implemented.
-func (d *Deps) handleAssignProfile(w http.ResponseWriter, _ *http.Request) { writeError(w, 501, "not implemented") }

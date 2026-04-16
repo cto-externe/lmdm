@@ -151,6 +151,7 @@ func cmdRun(args []string) error {
 		deviceID,
 		snapRoot,
 		profileStore,
+		nil, // PatchManager wired in Task 9
 	)
 	if err := policyHandler.Start(); err != nil {
 		return fmt.Errorf("policy handler: %w", err)

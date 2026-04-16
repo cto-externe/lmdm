@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/distro"
 	"github.com/cto-externe/lmdm/internal/policy"
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
 )
@@ -32,11 +33,12 @@ type Handler struct {
 	deviceID  string
 	snapRoot  string
 	store     *ProfileStore
+	pm        distro.PatchManager
 	sub       *nats.Subscription
 }
 
 // NewHandler wires a Handler.
-func NewHandler(nc *nats.Conn, serverPub *pqhybrid.SigningPublicKey, reg *policy.Registry, deviceID, snapRoot string, store *ProfileStore) *Handler {
+func NewHandler(nc *nats.Conn, serverPub *pqhybrid.SigningPublicKey, reg *policy.Registry, deviceID, snapRoot string, store *ProfileStore, pm distro.PatchManager) *Handler {
 	return &Handler{
 		nc:        nc,
 		serverPub: serverPub,
@@ -44,6 +46,7 @@ func NewHandler(nc *nats.Conn, serverPub *pqhybrid.SigningPublicKey, reg *policy
 		deviceID:  deviceID,
 		snapRoot:  snapRoot,
 		store:     store,
+		pm:        pm,
 	}
 }
 
@@ -83,6 +86,8 @@ func (h *Handler) handleMessage(msg *nats.Msg) {
 		h.handleApplyProfile(ctx, msg.Data, &env)
 	case env.GetRemoveProfile() != nil:
 		h.handleRemoveProfile(ctx, env.GetRemoveProfile().GetProfileId().GetId())
+	case env.GetApplyPatches() != nil:
+		h.handleApplyPatches(ctx, env.GetApplyPatches())
 	default:
 		// Not a command we handle — ignore.
 	}
@@ -140,6 +145,58 @@ func (h *Handler) handleRemoveProfile(ctx context.Context, profileID string) {
 
 	// Publish compliance as unknown (profile removed, state may be mixed).
 	h.publishComplianceStatus(lmdmv1.ComplianceStatus_COMPLIANCE_STATUS_UNKNOWN, 0, 0, 0)
+}
+
+func (h *Handler) handleApplyPatches(ctx context.Context, cmd *lmdmv1.ApplyPatchesCommand) {
+	if h.pm == nil {
+		slog.Warn("agentpolicy: ApplyPatchesCommand received but no PatchManager configured")
+		return
+	}
+	filter := distro.PatchFilter{}
+	if cmd.GetFilter() != nil {
+		filter.SecurityOnly = cmd.GetFilter().GetSecurityOnly()
+		filter.IncludePackages = cmd.GetFilter().GetIncludePackages()
+		filter.ExcludePackages = cmd.GetFilter().GetExcludePackages()
+	}
+
+	output, err := h.pm.ApplyUpdates(ctx, filter)
+	if err != nil {
+		slog.Error("agentpolicy: apply patches failed", "err", err, "output", output)
+	} else {
+		slog.Info("agentpolicy: patches applied successfully", "output_len", len(output))
+	}
+
+	// Re-detect updates after applying and publish a fresh PatchReport.
+	h.publishPatchReport(ctx)
+}
+
+func (h *Handler) publishPatchReport(ctx context.Context) {
+	if h.pm == nil {
+		return
+	}
+	updates, reboot, err := h.pm.DetectUpdates(ctx)
+	if err != nil {
+		slog.Warn("agentpolicy: post-apply detect failed", "err", err)
+		return
+	}
+	protoUpdates := make([]*lmdmv1.AvailableUpdate, 0, len(updates))
+	for _, u := range updates {
+		protoUpdates = append(protoUpdates, &lmdmv1.AvailableUpdate{
+			Name: u.Name, CurrentVersion: u.CurrentVersion,
+			AvailableVersion: u.AvailableVersion, Security: u.Security, Source: u.Source,
+		})
+	}
+	report := &lmdmv1.PatchReport{
+		DeviceId:       &lmdmv1.DeviceID{Id: h.deviceID},
+		Timestamp:      timestamppb.New(time.Now().UTC()),
+		Updates:        protoUpdates,
+		RebootRequired: reboot,
+	}
+	data, err := proto.Marshal(report)
+	if err != nil {
+		return
+	}
+	_ = h.nc.Publish("fleet.agent."+h.deviceID+".patches", data)
 }
 
 func (h *Handler) publishCompliance(result policy.ExecutionResult) {

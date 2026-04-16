@@ -14,13 +14,13 @@ import (
 func TestReadDMIMapTrimsTrailingNewlines(t *testing.T) {
 	dir := t.TempDir()
 	writes := map[string]string{
-		"sys_vendor":      "Dell Inc.\n",
-		"product_name":    "Latitude 7440",
-		"product_serial":  "ABC123\n",
-		"chassis_type":    "10\n",
-		"bios_vendor":     "Dell Inc.",
-		"bios_version":    "1.7.0\n",
-		"bios_date":       "04/14/2024\n",
+		"sys_vendor":     "Dell Inc.\n",
+		"product_name":   "Latitude 7440",
+		"product_serial": "ABC123\n",
+		"chassis_type":   "10\n",
+		"bios_vendor":    "Dell Inc.",
+		"bios_version":   "1.7.0\n",
+		"bios_date":      "04/14/2024\n",
 	}
 	for name, content := range writes {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {

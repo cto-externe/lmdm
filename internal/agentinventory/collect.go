@@ -83,12 +83,12 @@ func collectHardware() *lmdmv1.HardwareInventory {
 		Cpu:               cpu,
 		Memory:            mem,
 		Disks:             disks,
-		Gpus:              []*lmdmv1.GPUInfo{},         // out of scope at MVP
+		Gpus:              []*lmdmv1.GPUInfo{}, // out of scope at MVP
 		Bios:              dmiToBIOSInfo(dmi),
-		Tpm:               collectTPMFrom(tpmRoot),       // nil if no TPM
+		Tpm:               collectTPMFrom(tpmRoot),         // nil if no TPM
 		Battery:           collectBatteryFrom(batteryRoot), // nil if no battery
-		UsbDevices:        []*lmdmv1.USBDevice{},        // out of scope at MVP
-		SecureBootEnabled: false,                         // out of scope at MVP
+		UsbDevices:        []*lmdmv1.USBDevice{},           // out of scope at MVP
+		SecureBootEnabled: false,                           // out of scope at MVP
 	}
 }
 

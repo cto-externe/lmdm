@@ -14,9 +14,9 @@ type fakeAction struct {
 	verified    bool
 }
 
-func (f *fakeAction) Validate() error                              { return f.validateErr }
-func (f *fakeAction) Snapshot(_ context.Context, _ string) error   { return nil }
-func (f *fakeAction) Apply(_ context.Context) error                { return f.applyErr }
+func (f *fakeAction) Validate() error                            { return f.validateErr }
+func (f *fakeAction) Snapshot(_ context.Context, _ string) error { return nil }
+func (f *fakeAction) Apply(_ context.Context) error              { return f.applyErr }
 func (f *fakeAction) Verify(_ context.Context) (bool, string, error) {
 	return f.verified, "", nil
 }

@@ -26,7 +26,9 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentenroll"
 	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentkey"
+	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
+	"github.com/cto-externe/lmdm/internal/policy"
 )
 
 const agentVersion = "0.1.0"
@@ -137,6 +139,20 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("nats: %w", err)
 	}
 	defer bus.Close()
+
+	// Policy handler: subscribe to commands, apply profiles, publish compliance.
+	snapRoot := filepath.Join(*dataDir, "snapshots")
+	policyHandler := agentpolicy.NewHandler(
+		bus.NC(),
+		id.ServerPub,
+		policy.DefaultRegistry(),
+		deviceID,
+		snapRoot,
+	)
+	if err := policyHandler.Start(); err != nil {
+		return fmt.Errorf("policy handler: %w", err)
+	}
+	defer policyHandler.Stop()
 
 	// Run heartbeat + inventory loops concurrently; first error wins, but
 	// both are expected to return nil on ctx cancel.

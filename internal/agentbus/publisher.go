@@ -78,6 +78,10 @@ func (b *Bus) Publish(subject string, data []byte) error {
 	return nil
 }
 
+// NC returns the underlying *nats.Conn for consumers that need subscription
+// access (e.g., the policy handler). Use sparingly.
+func (b *Bus) NC() *nats.Conn { return b.nc }
+
 // Close drains and closes the underlying NATS connection.
 func (b *Bus) Close() {
 	if b == nil || b.nc == nil {

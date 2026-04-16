@@ -15,6 +15,7 @@ import (
 	"time"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/config"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
@@ -96,6 +97,13 @@ func run() error {
 	}
 	defer invIngester.Stop()
 	slog.Info("inventory ingester started")
+
+	compIng := complianceingester.New(bus, pool)
+	if err := compIng.Start(ctx); err != nil {
+		return fmt.Errorf("compliance ingester: %w", err)
+	}
+	defer compIng.Stop()
+	slog.Info("compliance ingester started")
 
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,

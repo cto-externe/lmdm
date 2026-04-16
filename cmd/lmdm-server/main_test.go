@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
+	"github.com/cto-externe/lmdm/internal/api"
 	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
@@ -35,6 +37,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/policy"
+	profilesRepo "github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
@@ -697,4 +700,166 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Fatal("compliance report not found within 5s")
+}
+
+func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	pg, err := postgres.Run(ctx, "postgres:16-alpine",
+		postgres.WithDatabase("lmdm"), postgres.WithUsername("lmdm"), postgres.WithPassword("lmdm"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("5432/tcp").WithStartupTimeout(30*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pg.Terminate(ctx) })
+	dsn, _ := pg.ConnectionString(ctx, "sslmode=disable")
+	if err := db.MigrateUp(dsn); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := db.Open(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	natsReq := testcontainers.ContainerRequest{
+		Image: "nats:2.10-alpine", ExposedPorts: []string{"4222/tcp"},
+		Cmd: []string{"-js"}, WaitingFor: wait.ForLog("Server is ready").WithStartupTimeout(30 * time.Second),
+	}
+	natsC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: natsReq, Started: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = natsC.Terminate(ctx) })
+	natsHost, _ := natsC.Host(ctx)
+	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
+	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
+
+	bus, err := natsbus.Connect(ctx, natsURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tokenRepo := tokens.NewRepository(pool)
+	deviceRepo := devices.NewRepository(pool)
+	keyPath := t.TempDir() + "/server.key"
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+
+	// Build server with enrollment + REST API.
+	httpAddr := freeAddr(t)
+	grpcAddr := freeAddr(t)
+	mux := http.NewServeMux()
+	mux.Handle("/healthz", server.NewHealthHandler(map[string]server.HealthChecker{}))
+	mux.Handle("/api/", api.Router(&api.Deps{
+		Pool:     pool,
+		Devices:  deviceRepo,
+		Tokens:   tokenRepo,
+		Profiles: profilesRepo.NewRepository(pool, serverPriv),
+		NATS:     bus.NC(),
+		TenantID: tenantID,
+	}))
+
+	srv, err := server.New(httpAddr, grpcAddr, mux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub,
+		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour)
+	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
+
+	errs := srv.Start()
+	defer func() { _ = srv.Shutdown(5 * time.Second) }()
+	select {
+	case e := <-errs:
+		t.Fatalf("server: %v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	baseURL := "http://" + httpAddr
+
+	// 1. Create a token via REST API.
+	tokenBody := `{"description":"api-test","max_uses":2,"ttl_seconds":3600}`
+	resp, err := http.Post(baseURL+"/api/v1/tokens", "application/json",
+		strings.NewReader(tokenBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		t.Fatalf("POST /tokens: %d %s", resp.StatusCode, body)
+	}
+	var tokenResp struct {
+		Data struct {
+			Token string `json:"token"`
+		} `json:"data"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&tokenResp)
+	_ = resp.Body.Close()
+	if tokenResp.Data.Token == "" {
+		t.Fatal("token plaintext must be returned")
+	}
+
+	// 2. Enroll a device using that token.
+	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
+	enrollRes, err := agentenroll.Enroll(ctx, grpcAddr, tokenResp.Data.Token, "0.1.0-api",
+		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-API-TEST"})
+	if err != nil {
+		t.Fatalf("Enroll: %v", err)
+	}
+
+	// 3. List devices via REST API — should have 1.
+	resp2, err := http.Get(baseURL + "/api/v1/devices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp2.Body.Close() }()
+	if resp2.StatusCode != 200 {
+		body, _ := io.ReadAll(resp2.Body)
+		t.Fatalf("GET /devices: %d %s", resp2.StatusCode, body)
+	}
+	var devicesResp struct {
+		Data  []json.RawMessage `json:"data"`
+		Total int               `json:"total"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&devicesResp)
+	if devicesResp.Total != 1 {
+		t.Errorf("total devices = %d, want 1", devicesResp.Total)
+	}
+
+	// 4. Get device detail.
+	resp3, err := http.Get(baseURL + "/api/v1/devices/" + enrollRes.DeviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp3.Body.Close() }()
+	if resp3.StatusCode != 200 {
+		body, _ := io.ReadAll(resp3.Body)
+		t.Fatalf("GET /devices/{id}: %d %s", resp3.StatusCode, body)
+	}
+
+	// 5. List tokens — should have 1.
+	resp4, err := http.Get(baseURL + "/api/v1/tokens")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp4.Body.Close() }()
+	if resp4.StatusCode != 200 {
+		body, _ := io.ReadAll(resp4.Body)
+		t.Fatalf("GET /tokens: %d %s", resp4.StatusCode, body)
+	}
 }

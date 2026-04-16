@@ -10,6 +10,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -71,19 +73,27 @@ func (h *Handler) handleMessage(msg *nats.Msg) {
 		slog.Warn("agentpolicy: bad envelope", "err", err)
 		return
 	}
-	applyCmd := env.GetApplyProfile()
-	if applyCmd == nil {
-		return // not an ApplyProfileCommand — ignore
-	}
 
-	parsed, err := VerifyAndParseCommand(msg.Data, h.serverPub)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Dispatch by command type.
+	switch {
+	case env.GetApplyProfile() != nil:
+		h.handleApplyProfile(ctx, msg.Data, &env)
+	case env.GetRemoveProfile() != nil:
+		h.handleRemoveProfile(ctx, env.GetRemoveProfile().GetProfileId().GetId())
+	default:
+		// Not a command we handle — ignore.
+	}
+}
+
+func (h *Handler) handleApplyProfile(ctx context.Context, data []byte, env *lmdmv1.CommandEnvelope) {
+	parsed, err := VerifyAndParseCommand(data, h.serverPub)
 	if err != nil {
 		slog.Warn("agentpolicy: verify/parse failed", "err", err)
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
 
 	deploymentID := env.GetDeploymentId().GetId()
 	if deploymentID == "" {
@@ -105,17 +115,37 @@ func (h *Handler) handleMessage(msg *nats.Msg) {
 	h.publishCompliance(result)
 }
 
+func (h *Handler) handleRemoveProfile(ctx context.Context, profileID string) {
+	if profileID == "" {
+		slog.Warn("agentpolicy: remove command with empty profile_id")
+		return
+	}
+
+	// Attempt rollback from snapshot. The snapshot dir name convention matches
+	// the deployment ID used during apply. For profiles applied via
+	// ApplyProfileCommand, the deployment ID = command_id or profile_id.
+	snapDir := filepath.Join(h.snapRoot, profileID)
+	if _, err := os.Stat(snapDir); err == nil {
+		if err := policy.Rollback(ctx, snapDir); err != nil {
+			slog.Warn("agentpolicy: rollback on remove failed", "profile", profileID, "err", err)
+		} else {
+			slog.Info("agentpolicy: profile removed with rollback", "profile", profileID)
+		}
+	} else {
+		slog.Warn("agentpolicy: no snapshot for profile, state is sticky", "profile", profileID)
+	}
+
+	// Remove from local store regardless.
+	_ = h.store.Remove(profileID)
+
+	// Publish compliance as unknown (profile removed, state may be mixed).
+	h.publishComplianceStatus(lmdmv1.ComplianceStatus_COMPLIANCE_STATUS_UNKNOWN, 0, 0, 0)
+}
+
 func (h *Handler) publishCompliance(result policy.ExecutionResult) {
 	status := lmdmv1.ComplianceStatus_COMPLIANCE_STATUS_COMPLIANT
 	if !result.AllCompliant {
 		status = lmdmv1.ComplianceStatus_COMPLIANCE_STATUS_NON_COMPLIANT
-	}
-
-	report := &lmdmv1.ComplianceReport{
-		DeviceId:      &lmdmv1.DeviceID{Id: h.deviceID},
-		Timestamp:     timestamppb.New(time.Now().UTC()),
-		OverallStatus: status,
-		TotalChecks:   uint32(len(result.Actions)),
 	}
 	var passed, failed uint32
 	for _, ar := range result.Actions {
@@ -125,9 +155,18 @@ func (h *Handler) publishCompliance(result policy.ExecutionResult) {
 			failed++
 		}
 	}
-	report.PassedChecks = passed
-	report.FailedChecks = failed
+	h.publishComplianceStatus(status, uint32(len(result.Actions)), passed, failed)
+}
 
+func (h *Handler) publishComplianceStatus(status lmdmv1.ComplianceStatus, total, passed, failed uint32) {
+	report := &lmdmv1.ComplianceReport{
+		DeviceId:      &lmdmv1.DeviceID{Id: h.deviceID},
+		Timestamp:     timestamppb.New(time.Now().UTC()),
+		OverallStatus: status,
+		TotalChecks:   total,
+		PassedChecks:  passed,
+		FailedChecks:  failed,
+	}
 	data, err := proto.Marshal(report)
 	if err != nil {
 		slog.Error("agentpolicy: marshal compliance", "err", err)
@@ -137,6 +176,20 @@ func (h *Handler) publishCompliance(result policy.ExecutionResult) {
 	if err := h.nc.Publish(subject, data); err != nil {
 		slog.Error("agentpolicy: publish compliance", "err", err)
 	}
+}
+
+// extractRemoveProfileID parses a CommandEnvelope and returns the profile ID
+// from a RemoveProfileCommand, or empty string if not a remove command.
+func extractRemoveProfileID(data []byte) string {
+	var env lmdmv1.CommandEnvelope
+	if err := proto.Unmarshal(data, &env); err != nil {
+		return ""
+	}
+	rm := env.GetRemoveProfile()
+	if rm == nil {
+		return ""
+	}
+	return rm.GetProfileId().GetId()
 }
 
 // ParsedCommand is the result of verifying and extracting the

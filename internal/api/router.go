@@ -45,4 +45,3 @@ func Router(d *Deps) http.Handler {
 
 	return mux
 }
-

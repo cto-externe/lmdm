@@ -2,7 +2,7 @@
 
 Outil souverain de gestion de parc Linux pour collectivités et administrations.
 
-**État actuel** : foundations + enrollment + heartbeat loop. Le serveur reçoit l'enrôlement d'agents, signe un certificat hybride post-quantique (Ed25519 + ML-DSA-65), et ingère les heartbeats publiés par les agents sur NATS JetStream.
+**État actuel** : le serveur gère l'enrôlement d'agents avec crypto post-quantique hybride (Ed25519 + ML-DSA-65), collecte l'inventaire matériel/logiciel/réseau, applique des profils de sécurité (policy engine avec 4 types d'actions + rollback), détecte les mises à jour disponibles (Debian apt + RHEL dnf), et expose une API REST pour l'administration. 7 tests d'intégration end-to-end valident le pipeline complet.
 
 ## Prérequis
 
@@ -10,7 +10,7 @@ Outil souverain de gestion de parc Linux pour collectivités et administrations.
 - Docker + Docker Compose
 - `buf` CLI — <https://buf.build/docs/installation>
 - `golangci-lint` v2 — <https://golangci-lint.run/welcome/install/>
-- `protoc-gen-go` + `protoc-gen-go-grpc` (pour régénérer les protos localement, via `go install` standard)
+- `protoc-gen-go` + `protoc-gen-go-grpc` (pour régénérer les protos, via `go install`)
 
 ## Démarrage rapide
 
@@ -21,8 +21,6 @@ make test-unit     # tests unitaires (rapides, pas de Docker)
 ```
 
 ### Initialiser Garage (une seule fois)
-
-Garage requiert une init manuelle (assignation de layout, création de clés, création du bucket) :
 
 ```bash
 NODE_ID=$(docker compose exec -T garage /garage node id -q | cut -d@ -f1)
@@ -47,22 +45,21 @@ go run ./cmd/lmdm-server
 
 Le serveur expose :
 - **`http://localhost:8080/healthz`** — health check (db + nats + s3)
+- **`http://localhost:8080/api/v1/...`** — API REST admin (voir ci-dessous)
 - **`localhost:50051`** — gRPC (EnrollmentService)
-
-```bash
-curl -s http://localhost:8080/healthz | jq
-# => {"status":"ok","checks":{"db":"ok","nats":"ok","s3":"ok"}}
-```
 
 ### Enrôler un agent
 
-Le projet distribue trois binaires. Une fois le serveur démarré :
-
-**1. Générer un token d'enrôlement** (côté admin) :
+**1. Générer un token** (via CLI ou API) :
 
 ```bash
+# Via CLI
 go run ./cmd/lmdm-token -description="poste-test" -ttl=24h -max-uses=1
-# Affiche le plaintext du token UNE SEULE FOIS.
+
+# Via API REST
+curl -s -X POST http://localhost:8080/api/v1/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"description":"poste-test","max_uses":1,"ttl_seconds":86400}' | jq
 ```
 
 **2. Enrôler l'agent** (côté poste client) :
@@ -72,24 +69,49 @@ go run ./cmd/lmdm-agent enroll \
     --token=<plaintext-du-token> \
     --server=localhost:50051 \
     --data-dir=/tmp/agent-dev
-# Persiste la keypair hybride (agent.key, 0600) et le cert signé (agent.identity, 0600).
 ```
 
-**3. Lancer la boucle heartbeat** :
+**3. Lancer l'agent** :
 
 ```bash
 go run ./cmd/lmdm-agent run \
     --data-dir=/tmp/agent-dev \
     --nats-url=nats://localhost:4222 \
-    --interval=5s
-# Publie un Heartbeat toutes les 5s sur fleet.agent.<device_id>.status.
+    --interval=30s \
+    --inventory-interval=1h \
+    --compliance-interval=1h \
+    --patch-interval=6h
 ```
 
-Le serveur ingère et met à jour `devices.last_seen` + `devices.agent_version` dans PostgreSQL. Vérifier :
+L'agent démarre 4 boucles concurrentes : heartbeat (30s), inventaire (1h), compliance drift (1h), détection patches (6h). Il écoute aussi les commandes serveur (profils, patches) via NATS.
+
+## API REST
+
+12 endpoints sur `http://localhost:8080/api/v1/` :
 
 ```bash
-docker compose exec -T postgres psql -U lmdm -c \
-    "SELECT hostname, agent_version, last_seen FROM devices;"
+# Devices
+curl -s http://localhost:8080/api/v1/devices | jq                     # lister (filtres: status, type, hostname)
+curl -s http://localhost:8080/api/v1/devices/<id> | jq                # détail
+curl -s http://localhost:8080/api/v1/devices/<id>/inventory | jq      # inventaire HW/SW/réseau (JSONB)
+curl -s http://localhost:8080/api/v1/devices/<id>/compliance | jq     # statut conformité
+curl -s http://localhost:8080/api/v1/devices/<id>/updates | jq        # mises à jour disponibles
+
+# Patches
+curl -s -X POST http://localhost:8080/api/v1/devices/<id>/updates/apply \
+  -d '{"security_only":true}' | jq                                    # appliquer les patches
+
+# Profils
+curl -s http://localhost:8080/api/v1/profiles | jq                    # lister
+curl -s http://localhost:8080/api/v1/profiles/<id> | jq               # détail + YAML
+curl -s -X POST http://localhost:8080/api/v1/profiles \
+  --data-binary @anssi-minimal.yml | jq                               # créer (signé PQ)
+curl -s -X POST http://localhost:8080/api/v1/profiles/<id>/assign/<device-id> | jq  # assigner + push NATS
+
+# Tokens
+curl -s http://localhost:8080/api/v1/tokens | jq                      # lister
+curl -s -X POST http://localhost:8080/api/v1/tokens \
+  -d '{"description":"test","max_uses":5,"ttl_seconds":86400}' | jq   # créer
 ```
 
 ## Structure
@@ -98,21 +120,28 @@ docker compose exec -T postgres psql -U lmdm -c \
 - `gen/go/lmdm/v1/` — code Go généré (commité)
 - `internal/` — code applicatif
   - `pqhybrid/` — crypto post-quantique hybride (Ed25519+ML-DSA, X25519+ML-KEM, BLAKE3)
-  - `db/` — accès PostgreSQL (pgx + migrations embarquées)
+  - `db/` — accès PostgreSQL (pgx + 9 migrations embarquées)
   - `natsbus/`, `agentbus/` — wrappers NATS (serveur et agent)
   - `objectstore/` — client S3/Garage
   - `serverkey/`, `agentkey/` — keystores hybrides sur disque
-  - `tokens/`, `devices/` — repositories DB tenant-scoped
+  - `tokens/`, `devices/`, `profiles/` — repositories DB tenant-scoped
   - `identity/` — signature des agent identity certificates
-  - `agentcert/`, `agentenroll/`, `agentstatus/`, `agentrunner/` — stack côté agent
+  - `policy/` — moteur de politiques (Action interface, 4 types, executor ordonné, snapshot, rollback, YAML parser)
+  - `distro/` — abstraction multi-distro (PatchManager : Debian apt, RHEL dnf, NixOS stub)
+  - `agentcert/`, `agentenroll/`, `agentstatus/`, `agentrunner/` — stack agent (heartbeat)
+  - `agentinventory/`, `agentinventoryrunner/` — collecte inventaire HW/SW/réseau
+  - `agentpolicy/` — réception profils, drift detection, RemoveProfileCommand
+  - `agentpatchrunner/` — détection périodique des mises à jour
   - `grpcservices/` — handlers gRPC serveur (EnrollmentService)
-  - `statusingester/` — consumer JetStream qui met à jour `devices.last_seen`
+  - `statusingester/`, `inventoryingester/`, `complianceingester/`, `patchingester/` — consumers JetStream
+  - `api/` — handlers REST API (12 endpoints)
   - `server/` — orchestration HTTP + gRPC + graceful shutdown
   - `config/` — chargement config depuis l'environnement
 - `cmd/` — binaires
-  - `lmdm-server` — serveur central
+  - `lmdm-server` — serveur central (gRPC + REST + ingesters)
   - `lmdm-agent` — agent Linux (sous-commandes `enroll`, `run`)
   - `lmdm-token` — CLI admin pour émettre des tokens d'enrôlement
+  - `lmdm-profile` — CLI admin pour créer/assigner des profils
 - `deploy/` — configs de déploiement (ex: `garage.toml` pour le dev)
 
 ## Tests
@@ -123,13 +152,27 @@ make test-integration  # utilise testcontainers (postgres + nats)
 make lint              # golangci-lint v2 + buf lint
 ```
 
-Les tests d'intégration tournent avec `testcontainers-go` et démarrent des containers réels (postgres:16-alpine, nats:2.10-alpine) — pas de mocks. Un test e2e (`TestIntegrationHeartbeatLoop`) valide le flow complet : token → enroll → heartbeat → DB mise à jour.
+7 tests d'intégration e2e avec `testcontainers-go` (postgres:16 + nats:2.10 réels) :
+
+1. **Healthz** — healthcheck db+nats+s3
+2. **Enrollment** — token → enroll → cert signé PQ
+3. **Heartbeat** — agent → NATS → devices.last_seen
+4. **Inventory** — collecte HW/SW → JSONB en DB
+5. **Policy** — profil signé → apply → compliance report
+6. **REST API** — create token → enroll → list devices
+7. **Patches** — PatchReport → ingester → REST API updates
+
+## Distributions supportées
+
+| Famille | Gestionnaire | Inventaire | Patch Management |
+|---|---|---|---|
+| **Debian / Ubuntu / Mint** | apt/dpkg | ✅ complet | ✅ detect + apply |
+| **RHEL / Alma / Rocky / Fedora** | dnf/rpm | ❌ (v0.2) | ✅ detect + apply |
+| **NixOS** | nix | ❌ (v0.3) | stub (déclaratif → profils) |
 
 ## Licence
 
 Ce projet est distribué sous **EUPL v1.2** (European Union Public Licence) — voir [LICENSE](LICENSE) et [LICENSE.fr](LICENSE.fr).
-
-Chaque fichier source porte les en-têtes SPDX canoniques :
 
 ```
 // SPDX-License-Identifier: EUPL-1.2

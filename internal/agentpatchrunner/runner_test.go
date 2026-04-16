@@ -55,8 +55,8 @@ type mockPatchManager struct {
 	reboot  bool
 }
 
-func (m *mockPatchManager) Family() string                                              { return "mock" }
-func (m *mockPatchManager) RefreshSources(_ context.Context) error                      { return nil }
+func (m *mockPatchManager) Family() string                         { return "mock" }
+func (m *mockPatchManager) RefreshSources(_ context.Context) error { return nil }
 func (m *mockPatchManager) DetectUpdates(_ context.Context) ([]distro.Update, bool, error) {
 	return m.updates, m.reboot, nil
 }

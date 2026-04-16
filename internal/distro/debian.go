@@ -31,7 +31,7 @@ func (d *DebianPatchManager) RefreshSources(ctx context.Context) error {
 
 // DetectUpdates lists upgradable packages via apt.
 func (d *DebianPatchManager) DetectUpdates(ctx context.Context) ([]Update, bool, error) {
-	_ = d.RefreshSources(ctx) // best-effort
+	_ = d.RefreshSources(ctx)                                                          // best-effort
 	out, err := exec.CommandContext(ctx, "apt", "list", "--upgradable", "-q").Output() //nolint:gosec
 	if err != nil {
 		return nil, false, fmt.Errorf("apt list: %w", err)

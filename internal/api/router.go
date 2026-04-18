@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 
+	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/profiles"
@@ -17,12 +18,16 @@ import (
 
 // Deps holds the dependencies injected into API handlers.
 type Deps struct {
-	Pool     *db.Pool
-	Devices  *devices.Repository
-	Tokens   *tokens.Repository
-	Profiles *profiles.Repository
-	NATS     *nats.Conn
-	TenantID uuid.UUID // Community default at MVP
+	Pool           *db.Pool
+	Devices        *devices.Repository
+	Tokens         *tokens.Repository
+	Profiles       *profiles.Repository
+	NATS           *nats.Conn
+	TenantID       uuid.UUID // Community default at MVP
+	Auth           *auth.Service
+	Signer         *auth.JWTSigner
+	LoginRateLimit *auth.RateLimiter // 10 per 10 min
+	MFARateLimit   *auth.RateLimiter // 60 per min
 }
 
 // Router returns an http.Handler with all /api/v1/ routes registered.

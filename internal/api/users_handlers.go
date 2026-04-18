@@ -21,7 +21,7 @@ import (
 
 // userJSON is the API projection of a user row. Sensitive fields
 // (password_hash, totp_secret_encrypted) are never serialized.
-type userJSON struct { //nolint:unused // wired in Task 16
+type userJSON struct {
 	ID                 uuid.UUID `json:"id"`
 	Email              string    `json:"email"`
 	Role               string    `json:"role"`
@@ -31,7 +31,7 @@ type userJSON struct { //nolint:unused // wired in Task 16
 	LastLoginAt        any       `json:"last_login_at,omitempty"`
 }
 
-func toUserJSON(u *users.User) userJSON { //nolint:unused // wired in Task 16
+func toUserJSON(u *users.User) userJSON {
 	var ll any
 	if u.LastLoginAt != nil {
 		ll = u.LastLoginAt
@@ -47,7 +47,7 @@ func toUserJSON(u *users.User) userJSON { //nolint:unused // wired in Task 16
 	}
 }
 
-func (d *Deps) handleListUsers(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	out, err := d.Users.List(r.Context(), d.TenantID, users.ListFilter{})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -60,7 +60,7 @@ func (d *Deps) handleListUsers(w http.ResponseWriter, r *http.Request) { //nolin
 	writeJSON(w, http.StatusOK, listResponse{Data: res, Total: len(res)})
 }
 
-func (d *Deps) handleGetUser(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseUUID(r, "id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id")
@@ -78,13 +78,13 @@ func (d *Deps) handleGetUser(w http.ResponseWriter, r *http.Request) { //nolint:
 	writeJSON(w, http.StatusOK, toUserJSON(u))
 }
 
-type createUserReq struct { //nolint:unused // wired in Task 16
+type createUserReq struct {
 	Email    string `json:"email"`
 	Role     string `json:"role"`
 	Password string `json:"password"`
 }
 
-func (d *Deps) handleCreateUser(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -131,12 +131,12 @@ func (d *Deps) handleCreateUser(w http.ResponseWriter, r *http.Request) { //noli
 	writeJSON(w, http.StatusCreated, toUserJSON(u))
 }
 
-type patchUserReq struct { //nolint:unused // wired in Task 16
+type patchUserReq struct {
 	Role   *string `json:"role,omitempty"`
 	Active *bool   `json:"active,omitempty"`
 }
 
-func (d *Deps) handlePatchUser(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handlePatchUser(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -216,11 +216,11 @@ func (d *Deps) handlePatchUser(w http.ResponseWriter, r *http.Request) { //nolin
 	w.WriteHeader(http.StatusNoContent)
 }
 
-type resetPwdResp struct { //nolint:unused // wired in Task 16
+type resetPwdResp struct {
 	TemporaryPassword string `json:"temporary_password"`
 }
 
-func (d *Deps) handleResetPassword(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")

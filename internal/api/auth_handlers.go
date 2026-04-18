@@ -19,19 +19,19 @@ import (
 
 // --- Login (step 1) ---
 
-type loginReq struct { //nolint:unused // wired in Task 16
+type loginReq struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type loginResp struct { //nolint:unused // wired in Task 16
+type loginResp struct {
 	StepUpToken        string `json:"step_up_token"`
 	NeedsMFASetup      bool   `json:"needs_mfa_setup,omitempty"`
 	NeedsMFAVerify     bool   `json:"needs_mfa_verify,omitempty"`
 	MustChangePassword bool   `json:"must_change_password,omitempty"`
 }
 
-func (d *Deps) handleLogin(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if d.LoginRateLimit != nil && !d.LoginRateLimit.Allow(ip.String()) {
 		writeError(w, http.StatusTooManyRequests, "too many login attempts")
@@ -67,17 +67,17 @@ func (d *Deps) handleLogin(w http.ResponseWriter, r *http.Request) { //nolint:un
 
 // --- MFA enrolment ---
 
-type mfaEnrollReq struct { //nolint:unused // wired in Task 16
+type mfaEnrollReq struct {
 	StepUpToken string `json:"step_up_token"`
 	Email       string `json:"email"`
 }
 
-type mfaEnrollResp struct { //nolint:unused // wired in Task 16
+type mfaEnrollResp struct {
 	URI         string `json:"uri"`
 	SetupHandle string `json:"setup_handle"`
 }
 
-func (d *Deps) handleMFAEnroll(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleMFAEnroll(w http.ResponseWriter, r *http.Request) {
 	var req mfaEnrollReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -93,19 +93,19 @@ func (d *Deps) handleMFAEnroll(w http.ResponseWriter, r *http.Request) { //nolin
 
 // --- MFA verification (finishes login) ---
 
-type mfaVerifyReq struct { //nolint:unused // wired in Task 16
+type mfaVerifyReq struct {
 	StepUpToken string `json:"step_up_token"`
 	Code        string `json:"code"`
 	SetupHandle string `json:"setup_handle,omitempty"` // only for the enrolment flow
 }
 
-type tokensResp struct { //nolint:unused // wired in Task 16
+type tokensResp struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresAt    int64  `json:"expires_at"`
 }
 
-func (d *Deps) handleMFAVerify(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleMFAVerify(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if d.MFARateLimit != nil && !d.MFARateLimit.Allow(ip.String()) {
 		writeError(w, http.StatusTooManyRequests, "rate limit")
@@ -136,11 +136,11 @@ func (d *Deps) handleMFAVerify(w http.ResponseWriter, r *http.Request) { //nolin
 
 // --- Refresh ---
 
-type refreshReq struct { //nolint:unused // wired in Task 16
+type refreshReq struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func (d *Deps) handleRefresh(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if d.MFARateLimit != nil && !d.MFARateLimit.Allow(ip.String()) {
 		writeError(w, http.StatusTooManyRequests, "rate limit")
@@ -165,11 +165,11 @@ func (d *Deps) handleRefresh(w http.ResponseWriter, r *http.Request) { //nolint:
 
 // --- Logout / LogoutAll ---
 
-type logoutReq struct { //nolint:unused // wired in Task 16
+type logoutReq struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func (d *Deps) handleLogout(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleLogout(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -181,7 +181,7 @@ func (d *Deps) handleLogout(w http.ResponseWriter, r *http.Request) { //nolint:u
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (d *Deps) handleLogoutAll(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -193,13 +193,13 @@ func (d *Deps) handleLogoutAll(w http.ResponseWriter, r *http.Request) { //nolin
 
 // --- Password change (self) ---
 
-type passwordReq struct { //nolint:unused // wired in Task 16
+type passwordReq struct {
 	CurrentPassword string `json:"current_password"`
 	NewPassword     string `json:"new_password"`
 	TOTPCode        string `json:"totp_code"`
 }
 
-func (d *Deps) handlePassword(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handlePassword(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -228,7 +228,7 @@ func (d *Deps) handlePassword(w http.ResponseWriter, r *http.Request) { //nolint
 
 // --- Me ---
 
-func (d *Deps) handleMe(w http.ResponseWriter, r *http.Request) { //nolint:unused // wired in Task 16
+func (d *Deps) handleMe(w http.ResponseWriter, r *http.Request) {
 	p := auth.PrincipalFrom(r.Context())
 	if p == nil {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -245,7 +245,7 @@ func (d *Deps) handleMe(w http.ResponseWriter, r *http.Request) { //nolint:unuse
 // --- helpers ---
 
 // clientIP returns the first IP found in X-Forwarded-For, or falls back to RemoteAddr.
-func clientIP(r *http.Request) net.IP { //nolint:unused // wired in Task 16
+func clientIP(r *http.Request) net.IP {
 	if fw := r.Header.Get("X-Forwarded-For"); fw != "" {
 		if i := strings.IndexByte(fw, ','); i >= 0 {
 			return net.ParseIP(strings.TrimSpace(fw[:i]))

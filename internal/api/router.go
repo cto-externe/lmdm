@@ -18,41 +18,84 @@ import (
 	"github.com/cto-externe/lmdm/internal/users"
 )
 
-// Deps holds the dependencies injected into API handlers.
+// Deps holds dependencies injected into API handlers.
 type Deps struct {
-	Pool           *db.Pool
-	Devices        *devices.Repository
-	Tokens         *tokens.Repository
-	Profiles       *profiles.Repository
-	NATS           *nats.Conn
-	TenantID       uuid.UUID // Community default at MVP
-	Auth           *auth.Service
-	Signer         *auth.JWTSigner
-	LoginRateLimit *auth.RateLimiter // 10 per 10 min
-	MFARateLimit   *auth.RateLimiter // 60 per min
-	Users          *users.Repository
-	Audit          *audit.Writer
+	Pool     *db.Pool
+	Devices  *devices.Repository
+	Tokens   *tokens.Repository
+	Profiles *profiles.Repository
+	Users    *users.Repository
+	Audit    *audit.Writer
+	Auth     *auth.Service
+	Signer   *auth.JWTSigner
+
+	LoginRateLimit *auth.RateLimiter
+	MFARateLimit   *auth.RateLimiter
+
+	NATS     *nats.Conn
+	TenantID uuid.UUID
 }
 
 // Router returns an http.Handler with all /api/v1/ routes registered.
+// Public auth endpoints require no auth; everything else runs through RequireAuth
+// followed by a permission guard.
 func Router(d *Deps) http.Handler {
 	mux := http.NewServeMux()
+	authed := auth.RequireAuth(d.Signer)
 
-	// Devices — implemented.
-	mux.HandleFunc("GET /api/v1/devices", d.handleListDevices)
-	mux.HandleFunc("GET /api/v1/devices/{id}", d.handleGetDevice)
+	// ----- Public (no auth) -----
+	mux.HandleFunc("POST /api/v1/auth/login", d.handleLogin)
+	mux.HandleFunc("POST /api/v1/auth/mfa/enroll", d.handleMFAEnroll)
+	mux.HandleFunc("POST /api/v1/auth/mfa/verify", d.handleMFAVerify)
+	mux.HandleFunc("POST /api/v1/auth/refresh", d.handleRefresh)
 
-	// Stubs — implemented in subsequent tasks.
-	mux.HandleFunc("GET /api/v1/devices/{id}/inventory", d.handleGetInventory)
-	mux.HandleFunc("GET /api/v1/devices/{id}/compliance", d.handleGetCompliance)
-	mux.HandleFunc("GET /api/v1/profiles", d.handleListProfiles)
-	mux.HandleFunc("GET /api/v1/profiles/{id}", d.handleGetProfile)
-	mux.HandleFunc("POST /api/v1/profiles", d.handleCreateProfile)
-	mux.HandleFunc("POST /api/v1/profiles/{id}/assign/{deviceID}", d.handleAssignProfile)
-	mux.HandleFunc("POST /api/v1/tokens", d.handleCreateToken)
-	mux.HandleFunc("GET /api/v1/tokens", d.handleListTokens)
-	mux.HandleFunc("GET /api/v1/devices/{id}/updates", d.handleListUpdates)
-	mux.HandleFunc("POST /api/v1/devices/{id}/updates/apply", d.handleApplyUpdates)
+	// ----- Authenticated (any role) -----
+	mux.Handle("POST /api/v1/auth/logout", authed(http.HandlerFunc(d.handleLogout)))
+	mux.Handle("POST /api/v1/auth/logout-all", authed(http.HandlerFunc(d.handleLogoutAll)))
+	mux.Handle("POST /api/v1/auth/password", authed(http.HandlerFunc(d.handlePassword)))
+	mux.Handle("GET /api/v1/auth/me", authed(http.HandlerFunc(d.handleMe)))
+
+	// ----- Devices -----
+	mux.Handle("GET /api/v1/devices",
+		authed(auth.RequirePermission(auth.PermDevicesRead, http.HandlerFunc(d.handleListDevices))))
+	mux.Handle("GET /api/v1/devices/{id}",
+		authed(auth.RequirePermission(auth.PermDevicesRead, http.HandlerFunc(d.handleGetDevice))))
+	mux.Handle("GET /api/v1/devices/{id}/inventory",
+		authed(auth.RequirePermission(auth.PermInventoryRead, http.HandlerFunc(d.handleGetInventory))))
+	mux.Handle("GET /api/v1/devices/{id}/compliance",
+		authed(auth.RequirePermission(auth.PermComplianceRead, http.HandlerFunc(d.handleGetCompliance))))
+	mux.Handle("GET /api/v1/devices/{id}/updates",
+		authed(auth.RequirePermission(auth.PermUpdatesRead, http.HandlerFunc(d.handleListUpdates))))
+	mux.Handle("POST /api/v1/devices/{id}/updates/apply",
+		authed(auth.RequirePermission(auth.PermUpdatesApply, http.HandlerFunc(d.handleApplyUpdates))))
+
+	// ----- Profiles -----
+	mux.Handle("GET /api/v1/profiles",
+		authed(auth.RequirePermission(auth.PermProfilesRead, http.HandlerFunc(d.handleListProfiles))))
+	mux.Handle("GET /api/v1/profiles/{id}",
+		authed(auth.RequirePermission(auth.PermProfilesRead, http.HandlerFunc(d.handleGetProfile))))
+	mux.Handle("POST /api/v1/profiles",
+		authed(auth.RequirePermission(auth.PermProfilesCreate, http.HandlerFunc(d.handleCreateProfile))))
+	mux.Handle("POST /api/v1/profiles/{id}/assign/{deviceID}",
+		authed(auth.RequirePermission(auth.PermProfilesAssign, http.HandlerFunc(d.handleAssignProfile))))
+
+	// ----- Enrollment tokens -----
+	mux.Handle("GET /api/v1/tokens",
+		authed(auth.RequirePermission(auth.PermTokensRead, http.HandlerFunc(d.handleListTokens))))
+	mux.Handle("POST /api/v1/tokens",
+		authed(auth.RequirePermission(auth.PermTokensCreate, http.HandlerFunc(d.handleCreateToken))))
+
+	// ----- Users (admin only) -----
+	mux.Handle("GET /api/v1/users",
+		authed(auth.RequirePermission(auth.PermUsersRead, http.HandlerFunc(d.handleListUsers))))
+	mux.Handle("GET /api/v1/users/{id}",
+		authed(auth.RequirePermission(auth.PermUsersRead, http.HandlerFunc(d.handleGetUser))))
+	mux.Handle("POST /api/v1/users",
+		authed(auth.RequirePermission(auth.PermUsersManage, http.HandlerFunc(d.handleCreateUser))))
+	mux.Handle("PATCH /api/v1/users/{id}",
+		authed(auth.RequirePermission(auth.PermUsersManage, http.HandlerFunc(d.handlePatchUser))))
+	mux.Handle("POST /api/v1/users/{id}/reset-password",
+		authed(auth.RequirePermission(auth.PermUsersManage, http.HandlerFunc(d.handleResetPassword))))
 
 	return mux
 }

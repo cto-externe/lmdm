@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/cto-externe/lmdm/internal/audit"
+	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/tokens"
 )
 
@@ -78,6 +80,20 @@ func (d *Deps) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if pr := auth.PrincipalFrom(r.Context()); pr != nil && d.Audit != nil {
+		_ = d.Audit.Write(r.Context(), audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(pr.UserID),
+			Action:       audit.ActionEnrollmentTokenCreated,
+			ResourceType: "enrollment_token",
+			ResourceID:   tok.ID.String(),
+			SourceIP:     clientIP(r),
+			Details: map[string]any{
+				"group_ids": tok.GroupIDs,
+				"max_uses":  tok.MaxUses,
+			},
+		})
 	}
 	// Return plaintext ONCE — it's not stored and won't be retrievable.
 	writeJSON(w, http.StatusCreated, map[string]any{

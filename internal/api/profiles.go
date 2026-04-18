@@ -12,6 +12,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/cto-externe/lmdm/internal/audit"
+	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/profiles"
 )
 
@@ -95,6 +97,17 @@ func (d *Deps) handleCreateProfile(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if pr := auth.PrincipalFrom(r.Context()); pr != nil && d.Audit != nil {
+		_ = d.Audit.Write(r.Context(), audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(pr.UserID),
+			Action:       audit.ActionProfileCreated,
+			ResourceType: "profile",
+			ResourceID:   p.ID.String(),
+			SourceIP:     clientIP(r),
+			Details:      map[string]any{"name": p.Name, "version": p.Version},
+		})
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"data": toProfileJSON(p, false),

@@ -9,6 +9,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/audit"
+	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/profiles"
 )
 
@@ -70,6 +72,18 @@ func (d *Deps) handleAssignProfile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = d.NATS.Flush()
+	}
+
+	if pr := auth.PrincipalFrom(ctx); pr != nil && d.Audit != nil {
+		_ = d.Audit.Write(ctx, audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(pr.UserID),
+			Action:       audit.ActionProfileAssigned,
+			ResourceType: "profile",
+			ResourceID:   profileID.String(),
+			SourceIP:     clientIP(r),
+			Details:      map[string]any{"device_id": deviceID.String()},
+		})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{

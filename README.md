@@ -114,6 +114,27 @@ curl -s -X POST http://localhost:8080/api/v1/tokens \
   -d '{"description":"test","max_uses":5,"ttl_seconds":86400}' | jq   # créer
 ```
 
+### Authentification console et RBAC
+
+LMDM inclut une authentification console avec MFA TOTP obligatoire :
+
+- Login/password (argon2id) + TOTP (6 chiffres, AES-256-GCM au repos)
+- JWT ES256 access token (15 min) + refresh opaque avec rotation (7 j)
+- 3 rôles : **Admin** (tout), **Operator** (actions terrain), **Viewer** (lecture seule)
+- Account lockout après 5 échecs, rate limit IP
+- Audit trail complet : events auth + mutations API
+
+Voir [docs/fr/auth.md](docs/fr/auth.md) pour le guide opérationnel complet.
+
+**Bootstrap rapide** :
+
+```bash
+make keys
+export LMDM_PG_DSN='postgres://lmdm:lmdm@localhost:5432/lmdm?sslmode=disable'
+export LMDM_ENC_KEY_PATH=deploy/secrets/enc-key.b64
+go run ./cmd/lmdm-user create-admin --email admin@exemple.fr
+```
+
 ## Structure
 
 - `proto/lmdm/v1/` — définitions protobuf (API v1)

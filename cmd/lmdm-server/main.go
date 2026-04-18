@@ -6,11 +6,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +20,8 @@ import (
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/api"
+	"github.com/cto-externe/lmdm/internal/audit"
+	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/config"
 	"github.com/cto-externe/lmdm/internal/db"
@@ -32,6 +36,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/serverkey"
 	"github.com/cto-externe/lmdm/internal/statusingester"
 	"github.com/cto-externe/lmdm/internal/tokens"
+	"github.com/cto-externe/lmdm/internal/users"
 )
 
 func main() {
@@ -141,14 +146,53 @@ func run() error {
 		}),
 	}))
 
+	// Auth plumbing: JWT signer, AES-256 master key, users repo, audit writer,
+	// AuthService, and the per-route rate limiters consumed by the REST layer.
+	jwtSigner, err := auth.LoadJWTSigner(cfg.JWTPrivateKeyPath, 15*time.Minute)
+	if err != nil {
+		return fmt.Errorf("load jwt signer: %w", err)
+	}
+	slog.Info("jwt signer loaded", "path", cfg.JWTPrivateKeyPath)
+
+	encB64, err := os.ReadFile(cfg.EncKeyPath) //nolint:gosec // path is an explicit configuration input
+	if err != nil {
+		return fmt.Errorf("read enc key: %w", err)
+	}
+	encKey, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(encB64)))
+	if err != nil {
+		return fmt.Errorf("decode enc key: %w", err)
+	}
+	if len(encKey) != 32 {
+		return fmt.Errorf("enc key must decode to 32 bytes, got %d", len(encKey))
+	}
+	slog.Info("enc key loaded", "path", cfg.EncKeyPath)
+
+	usersRepo := users.New(pool)
+	auditWriter := audit.NewWriter(pool)
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	authSvc := &auth.Service{
+		Users:    usersRepo,
+		Audit:    auditWriter,
+		Signer:   jwtSigner,
+		EncKey:   encKey,
+		TenantID: tenantID,
+		Issuer:   "LMDM",
+	}
+
 	// REST API — all endpoints under /api/v1/.
 	apiDeps := &api.Deps{
-		Pool:     pool,
-		Devices:  deviceRepo,
-		Tokens:   tokenRepo,
-		Profiles: profiles.NewRepository(pool, serverPriv),
-		NATS:     bus.NC(),
-		TenantID: uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+		Pool:           pool,
+		Devices:        deviceRepo,
+		Tokens:         tokenRepo,
+		Profiles:       profiles.NewRepository(pool, serverPriv),
+		Users:          usersRepo,
+		Audit:          auditWriter,
+		Auth:           authSvc,
+		Signer:         jwtSigner,
+		LoginRateLimit: auth.NewRateLimiter(10, 10*time.Minute),
+		MFARateLimit:   auth.NewRateLimiter(60, time.Minute),
+		NATS:           bus.NC(),
+		TenantID:       tenantID,
 	}
 	mux.Handle("/api/", api.Router(apiDeps))
 

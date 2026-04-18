@@ -12,6 +12,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/audit"
+	"github.com/cto-externe/lmdm/internal/auth"
 )
 
 type updateJSON struct {
@@ -93,6 +95,20 @@ func (d *Deps) handleApplyUpdates(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = d.NATS.Flush()
+	}
+	if pr := auth.PrincipalFrom(r.Context()); pr != nil && d.Audit != nil {
+		_ = d.Audit.Write(r.Context(), audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(pr.UserID),
+			Action:       audit.ActionDeviceUpdatesApplied,
+			ResourceType: "device",
+			ResourceID:   deviceID.String(),
+			SourceIP:     clientIP(r),
+			Details: map[string]any{
+				"security_only":  req.SecurityOnly,
+				"packages_count": len(req.IncludePackages),
+			},
+		})
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"message": "patch apply command sent",

@@ -5,6 +5,8 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
 	"io"
@@ -32,6 +34,8 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
 	"github.com/cto-externe/lmdm/internal/api"
+	"github.com/cto-externe/lmdm/internal/audit"
+	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
@@ -46,7 +50,92 @@ import (
 	"github.com/cto-externe/lmdm/internal/serverkey"
 	"github.com/cto-externe/lmdm/internal/statusingester"
 	"github.com/cto-externe/lmdm/internal/tokens"
+	"github.com/cto-externe/lmdm/internal/users"
 )
+
+// testAccessToken mints a signed admin JWT for tests without going through
+// the /auth/login + MFA flow. The signer is the same one the server handlers
+// use to verify access tokens, so tokens minted here are fully valid.
+func testAccessToken(t *testing.T, signer *auth.JWTSigner, tenantID uuid.UUID) string {
+	t.Helper()
+	tok, err := signer.IssueAccess(uuid.New(), tenantID, auth.RoleAdmin, "it@example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+// authedGet issues a GET with a Bearer token attached.
+func authedGet(t *testing.T, url, bearer string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// authedPost issues a POST with a Bearer token and JSON body.
+func authedPost(t *testing.T, url, bearer, contentType, body string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+	req.Header.Set("Content-Type", contentType)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+// newTestAPIDeps returns api.Deps pre-wired with a test JWT signer, encryption
+// key, auth.Service, users repo, audit writer, and generous rate limits so
+// integration tests can authenticate without hitting the live /auth/login
+// flow. Returns the signer so callers can mint access tokens.
+func newTestAPIDeps(t *testing.T, pool *db.Pool, deviceRepo *devices.Repository, tokenRepo *tokens.Repository, profRepo *profilesRepo.Repository, nc *nats.Conn, tenantID uuid.UUID) (*api.Deps, *auth.JWTSigner) {
+	t.Helper()
+	pk, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := auth.NewJWTSigner(pk, 15*time.Minute)
+	encKey := make([]byte, 32)
+	if _, err := rand.Read(encKey); err != nil {
+		t.Fatal(err)
+	}
+	usersRepo := users.New(pool)
+	auditWriter := audit.NewWriter(pool)
+	authSvc := &auth.Service{
+		Users:    usersRepo,
+		Audit:    auditWriter,
+		Signer:   signer,
+		EncKey:   encKey,
+		TenantID: tenantID,
+		Issuer:   "LMDM",
+	}
+	return &api.Deps{
+		Pool:           pool,
+		Devices:        deviceRepo,
+		Tokens:         tokenRepo,
+		Profiles:       profRepo,
+		Users:          usersRepo,
+		Audit:          auditWriter,
+		Auth:           authSvc,
+		Signer:         signer,
+		LoginRateLimit: auth.NewRateLimiter(1000, time.Minute),
+		MFARateLimit:   auth.NewRateLimiter(1000, time.Minute),
+		NATS:           nc,
+		TenantID:       tenantID,
+	}, signer
+}
 
 func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 	if testing.Short() {
@@ -767,14 +856,9 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	grpcAddr := freeAddr(t)
 	mux := http.NewServeMux()
 	mux.Handle("/healthz", server.NewHealthHandler(map[string]server.HealthChecker{}))
-	mux.Handle("/api/", api.Router(&api.Deps{
-		Pool:     pool,
-		Devices:  deviceRepo,
-		Tokens:   tokenRepo,
-		Profiles: profilesRepo.NewRepository(pool, serverPriv),
-		NATS:     bus.NC(),
-		TenantID: tenantID,
-	}))
+	apiDeps, signer := newTestAPIDeps(t, pool, deviceRepo, tokenRepo,
+		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
+	mux.Handle("/api/", api.Router(apiDeps))
 
 	srv, err := server.New(httpAddr, grpcAddr, mux)
 	if err != nil {
@@ -793,14 +877,11 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	}
 
 	baseURL := "http://" + httpAddr
+	bearer := testAccessToken(t, signer, tenantID)
 
 	// 1. Create a token via REST API.
 	tokenBody := `{"description":"api-test","max_uses":2,"ttl_seconds":3600}`
-	resp, err := http.Post(baseURL+"/api/v1/tokens", "application/json",
-		strings.NewReader(tokenBody))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := authedPost(t, baseURL+"/api/v1/tokens", bearer, "application/json", tokenBody)
 	if resp.StatusCode != 201 {
 		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
@@ -826,10 +907,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	}
 
 	// 3. List devices via REST API — should have 1.
-	resp2, err := http.Get(baseURL + "/api/v1/devices")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp2 := authedGet(t, baseURL+"/api/v1/devices", bearer)
 	defer func() { _ = resp2.Body.Close() }()
 	if resp2.StatusCode != 200 {
 		body, _ := io.ReadAll(resp2.Body)
@@ -845,10 +923,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	}
 
 	// 4. Get device detail.
-	resp3, err := http.Get(baseURL + "/api/v1/devices/" + enrollRes.DeviceID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp3 := authedGet(t, baseURL+"/api/v1/devices/"+enrollRes.DeviceID, bearer)
 	defer func() { _ = resp3.Body.Close() }()
 	if resp3.StatusCode != 200 {
 		body, _ := io.ReadAll(resp3.Body)
@@ -856,10 +931,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	}
 
 	// 5. List tokens — should have 1.
-	resp4, err := http.Get(baseURL + "/api/v1/tokens")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp4 := authedGet(t, baseURL+"/api/v1/tokens", bearer)
 	defer func() { _ = resp4.Body.Close() }()
 	if resp4.StatusCode != 200 {
 		body, _ := io.ReadAll(resp4.Body)
@@ -934,14 +1006,9 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
 	mux := http.NewServeMux()
-	mux.Handle("/api/", api.Router(&api.Deps{
-		Pool:     pool,
-		Devices:  deviceRepo,
-		Tokens:   tokenRepo,
-		Profiles: profilesRepo.NewRepository(pool, serverPriv),
-		NATS:     bus.NC(),
-		TenantID: tenantID,
-	}))
+	apiDeps, signer := newTestAPIDeps(t, pool, deviceRepo, tokenRepo,
+		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
+	mux.Handle("/api/", api.Router(apiDeps))
 	srv, err := server.New(httpAddr, grpcAddr, mux)
 	if err != nil {
 		t.Fatal(err)
@@ -997,11 +1064,17 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	_ = agentNC.Flush()
 
 	baseURL := "http://" + httpAddr
+	bearer := testAccessToken(t, signer, tenantID)
 
 	// Poll GET /api/v1/devices/<id>/updates until total == 1.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(baseURL + "/api/v1/devices/" + enrollRes.DeviceID + "/updates") //nolint:gosec
+		req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/devices/"+enrollRes.DeviceID+"/updates", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			var body struct {
 				Data  []json.RawMessage `json:"data"`

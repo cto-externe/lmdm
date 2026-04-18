@@ -20,6 +20,14 @@ type Config struct {
 	S3SecretKey       string
 	ServerKeyPath     string
 	EnrollmentCertTTL time.Duration
+
+	// JWTPrivateKeyPath points at a PEM-encoded ECDSA P-256 key loaded at
+	// startup by auth.LoadJWTSigner. Required in production; falls back to
+	// the repo-local deploy/secrets path for dev convenience.
+	JWTPrivateKeyPath string
+	// EncKeyPath points at a base64 file holding the 32-byte AES-256 master
+	// key used by internal/auth to seal TOTP secrets at rest.
+	EncKeyPath string
 }
 
 // EnvLookup is the minimal interface required to read an environment variable.
@@ -42,6 +50,8 @@ func Load(env EnvLookup) (*Config, error) {
 		S3SecretKey:       env("LMDM_S3_SECRET_KEY"),
 		ServerKeyPath:     firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "/var/lib/lmdm/server-signing.key"),
 		EnrollmentCertTTL: parseDurationOrDefault(env("LMDM_ENROLLMENT_CERT_TTL"), 365*24*time.Hour),
+		JWTPrivateKeyPath: firstNonEmpty(env("LMDM_JWT_PRIVATE_KEY_PATH"), "deploy/secrets/jwt-priv.pem"),
+		EncKeyPath:        firstNonEmpty(env("LMDM_ENC_KEY_PATH"), "deploy/secrets/enc-key.b64"),
 	}
 	return cfg, nil
 }

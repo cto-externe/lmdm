@@ -192,6 +192,32 @@ func (r *Repository) SetPasswordHash(ctx context.Context, tenantID, id uuid.UUID
 	return r.update(ctx, tenantID, "set password", q, tenantID, id, newHash, mustChange)
 }
 
+// SetPasswordAndRevokeAll atomically updates the password hash AND revokes every
+// active refresh token for userID in a single PostgreSQL transaction. Returns
+// ErrNotFound if the user row is not visible under tenantID's RLS (the revoke
+// is not attempted in that case).
+func (r *Repository) SetPasswordAndRevokeAll(ctx context.Context, tenantID, userID uuid.UUID, newHash string, mustChange bool, revokeReason string) error {
+	return r.withTenant(ctx, tenantID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+            UPDATE users
+            SET password_hash = $1, must_change_password = $2, updated_at = NOW()
+            WHERE id = $3 AND tenant_id = $4
+        `, newHash, mustChange, userID, tenantID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		_, err = tx.Exec(ctx, `
+            UPDATE refresh_tokens
+            SET revoked_at = NOW(), revoked_reason = $1
+            WHERE user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+        `, revokeReason, userID, tenantID)
+		return err
+	})
+}
+
 // RecordLoginSuccess clears the failure counter / lock and stamps last_login_*.
 func (r *Repository) RecordLoginSuccess(ctx context.Context, tenantID, id uuid.UUID, ip net.IP) error {
 	const q = `UPDATE users

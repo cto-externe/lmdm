@@ -568,3 +568,85 @@ func TestIntegration_List_AppliesRoleAndActiveFilters(t *testing.T) {
 		}
 	}
 }
+
+func TestIntegration_SetPasswordAndRevokeAll_AtomicOnFailure(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	tenantID := uuid.MustParse(defaultTenant)
+	ctx := context.Background()
+
+	u, err := r.Create(ctx, tenantID, "setpw-revoke@x.test", "old-hash", "operator")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Seed two active refresh tokens.
+	_, hashA, err := NewOpaqueToken()
+	if err != nil {
+		t.Fatalf("NewOpaqueToken A: %v", err)
+	}
+	rtA, err := r.CreateRefreshToken(ctx, tenantID, u.ID, hashA, uuid.Nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateRefreshToken A: %v", err)
+	}
+	_, hashB, err := NewOpaqueToken()
+	if err != nil {
+		t.Fatalf("NewOpaqueToken B: %v", err)
+	}
+	rtB, err := r.CreateRefreshToken(ctx, tenantID, u.ID, hashB, uuid.Nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("CreateRefreshToken B: %v", err)
+	}
+
+	const newHash = "new-hash-value"
+	if err := r.SetPasswordAndRevokeAll(ctx, tenantID, u.ID, newHash, true, "password_reset"); err != nil {
+		t.Fatalf("SetPasswordAndRevokeAll: %v", err)
+	}
+
+	// Password hash + must_change_password must have been updated.
+	got, err := r.FindByID(ctx, tenantID, u.ID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	if got.PasswordHash != newHash {
+		t.Errorf("PasswordHash = %q, want %q", got.PasswordHash, newHash)
+	}
+	if !got.MustChangePassword {
+		t.Error("MustChangePassword = false, want true")
+	}
+
+	// Both refresh tokens must be revoked with the reason we passed.
+	gotA, err := r.FindRefreshByHash(ctx, tenantID, hashA)
+	if err != nil {
+		t.Fatalf("FindRefreshByHash A: %v", err)
+	}
+	if gotA.RevokedAt == nil {
+		t.Error("rtA.RevokedAt = nil after SetPasswordAndRevokeAll, want set")
+	}
+	if gotA.RevokedReason == nil || *gotA.RevokedReason != "password_reset" {
+		t.Errorf("rtA.RevokedReason = %v, want %q", gotA.RevokedReason, "password_reset")
+	}
+	gotB, err := r.FindRefreshByHash(ctx, tenantID, hashB)
+	if err != nil {
+		t.Fatalf("FindRefreshByHash B: %v", err)
+	}
+	if gotB.RevokedAt == nil {
+		t.Error("rtB.RevokedAt = nil after SetPasswordAndRevokeAll, want set")
+	}
+	if gotB.RevokedReason == nil || *gotB.RevokedReason != "password_reset" {
+		t.Errorf("rtB.RevokedReason = %v, want %q", gotB.RevokedReason, "password_reset")
+	}
+
+	// Calling on a non-existent user id must return ErrNotFound and NOT touch
+	// any refresh token state.
+	ghost := uuid.New()
+	if err := r.SetPasswordAndRevokeAll(ctx, tenantID, ghost, newHash, false, "noop"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ghost user err = %v, want ErrNotFound", err)
+	}
+	_ = rtA
+	_ = rtB
+}

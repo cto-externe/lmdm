@@ -49,6 +49,24 @@ func VerifyPassword(candidate, encoded string) bool {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &mem, &tIter, &par); err != nil {
 		return false
 	}
+	// Clamp decoded parameters to sane maxima to defend against a stored hash
+	// whose PHC-encoded params would force huge allocation or runaway compute.
+	// A malicious or corrupt hash with m=4194304 (4 GiB) would otherwise burn a
+	// request thread for minutes.
+	//   - memory in KiB, capped at 1 GiB
+	//   - iterations capped at 100 (OWASP 2026 recommends 2; 100 is a wide safety margin)
+	//   - parallelism 1..16
+	const (
+		maxArgonMemKiB  = 1 << 20 // 1 GiB
+		maxArgonIter    = 100
+		minArgonThreads = 1
+		maxArgonThreads = 16
+	)
+	if mem == 0 || mem > maxArgonMemKiB ||
+		tIter == 0 || tIter > maxArgonIter ||
+		par < minArgonThreads || par > maxArgonThreads {
+		return false
+	}
 	b64 := base64.RawStdEncoding
 	salt, err := b64.DecodeString(parts[4])
 	if err != nil {

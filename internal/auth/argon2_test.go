@@ -33,3 +33,27 @@ func TestVerifyPassword_RejectsMalformedHash(t *testing.T) {
 		t.Error("malformed hash must not verify")
 	}
 }
+
+func TestVerifyPassword_RejectsOutOfRangeParams(t *testing.T) {
+	// Placeholder salt and hash blocks (valid base64, non-zero length) — the
+	// param clamp should reject these before any argon2 compute happens, so the
+	// actual bytes are irrelevant.
+	const salt = "c2FsdHNhbHRzYWx0c2FsdA"
+	const h = "aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g"
+	cases := []struct {
+		name string
+		enc  string
+	}{
+		{"memory too high", "$argon2id$v=19$m=9999999,t=2,p=1$" + salt + "$" + h},
+		{"iterations zero", "$argon2id$v=19$m=65536,t=0,p=1$" + salt + "$" + h},
+		{"parallelism zero", "$argon2id$v=19$m=65536,t=2,p=0$" + salt + "$" + h},
+		{"parallelism too high", "$argon2id$v=19$m=65536,t=2,p=99$" + salt + "$" + h},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if VerifyPassword("anything", c.enc) {
+				t.Errorf("out-of-range params (%s) must not verify: %q", c.name, c.enc)
+			}
+		})
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,30 @@ import (
 // MinPasswordLen is the minimum password length enforced by NIST 800-63B
 // (no complexity rules).
 const MinPasswordLen = 12
+
+var (
+	dummyArgonHashOnce sync.Once
+	dummyArgonHash     string
+)
+
+// dummyHash returns a pre-computed argon2id hash used to equalize the timing
+// of Login's "unknown email" branch with the "wrong password" branch.
+// Without this, an attacker could distinguish these two states via the ~150 ms
+// argon2 verify latency.
+func dummyHash() string {
+	dummyArgonHashOnce.Do(func() {
+		h, err := HashPassword("timing-equalization-dummy-password")
+		if err != nil {
+			// Fall back to a fixed PHC-valid string; VerifyPassword against it
+			// will still burn the argon2 compute cycles.
+			dummyArgonHash = "$argon2id$v=19$m=65536,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g"
+			_ = err
+			return
+		}
+		dummyArgonHash = h
+	})
+	return dummyArgonHash
+}
 
 // StepUpTokenTTL caps the window between password verification and
 // MFA/password-change completion.
@@ -34,6 +59,33 @@ type Service struct {
 	EncKey   []byte // 32-byte AES-256 key for TOTP secrets
 	TenantID uuid.UUID
 	Issuer   string // used in the TOTP otpauth URI ("LMDM" by default)
+
+	// lastTOTPStep prevents replay of a TOTP code within the same 30-second step window.
+	// Key: user UUID (uuid.UUID as comparable). Value: int64 (unix-step of the most recent
+	// successful verification for that user).
+	lastTOTPStep sync.Map
+}
+
+// registerTOTPUse returns true if the current step is accepted (not a replay of a
+// previously-seen step for this user) and records it. Returns false if the same
+// user has already verified at the current step — i.e. the code is being replayed
+// within the same 30-second window.
+//
+// Limitations: this only catches replays within the same TOTP period. A code
+// observed at step N and replayed at step N+1 (still within the ±1 skew window)
+// is not caught at the service layer. For full coverage we would need to know
+// which step the library matched, which pquerna/otp does not expose.
+func (s *Service) registerTOTPUse(userID uuid.UUID) bool {
+	step := time.Now().Unix() / 30
+	prev, loaded := s.lastTOTPStep.LoadOrStore(userID, step)
+	if !loaded {
+		return true
+	}
+	if prev.(int64) >= step {
+		return false // replay: already verified in this or a future step
+	}
+	s.lastTOTPStep.Store(userID, step)
+	return true
 }
 
 // LoginResult is returned from Login when password verification succeeds.
@@ -60,6 +112,9 @@ type Tokens struct {
 func (s *Service) Login(ctx context.Context, email, password string, ip net.IP) (*LoginResult, error) {
 	u, err := s.Users.FindByEmail(ctx, s.TenantID, email)
 	if errors.Is(err, users.ErrNotFound) {
+		// Equalize timing with the wrong-password path so the response time does not
+		// leak whether the email exists.
+		_ = VerifyPassword(password, dummyHash())
 		s.writeAudit(ctx, audit.ActorSystem, ip, audit.ActionUserLoginFailure, "user", email,
 			map[string]any{"reason": "unknown_email"})
 		return nil, ErrInvalidCredentials
@@ -165,6 +220,12 @@ func (s *Service) VerifyMFA(ctx context.Context, stepUpToken, code, setupHandle,
 	}
 	ok, err := VerifyTOTP(string(plain), code)
 	if err != nil || !ok {
+		return nil, ErrMFAInvalid
+	}
+	// Replay guard: reject the same TOTP step for this user within its 30s window.
+	// Applied even during setup — if a dev test ran two setups in the same second,
+	// it's still correct to reject the second one.
+	if !s.registerTOTPUse(u.ID) {
 		return nil, ErrMFAInvalid
 	}
 	if setupHandle != "" {
@@ -287,6 +348,11 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, current,
 	if u.TOTPSecretEncrypted == nil {
 		return ErrMFASetupRequired
 	}
+	// Validate the new password policy up-front so a rejected password does not
+	// consume the per-user TOTP step (replay guard).
+	if err := validatePasswordPolicy(next); err != nil {
+		return err
+	}
 	plain, err := Decrypt(s.EncKey, u.TOTPSecretEncrypted)
 	if err != nil {
 		return err
@@ -295,17 +361,16 @@ func (s *Service) ChangePassword(ctx context.Context, userID uuid.UUID, current,
 	if err != nil || !ok {
 		return ErrMFAInvalid
 	}
-	if err := validatePasswordPolicy(next); err != nil {
-		return err
+	if !s.registerTOTPUse(u.ID) {
+		return ErrMFAInvalid
 	}
 	h, err := HashPassword(next)
 	if err != nil {
 		return err
 	}
-	if err := s.Users.SetPasswordHash(ctx, s.TenantID, u.ID, h, false); err != nil {
+	if err := s.Users.SetPasswordAndRevokeAll(ctx, s.TenantID, u.ID, h, false, "password_change"); err != nil {
 		return err
 	}
-	_ = s.Users.RevokeAllForUser(ctx, s.TenantID, u.ID, "password_change")
 	s.writeAudit(ctx, audit.ActorUser(u.ID), ip, audit.ActionUserPasswordChanged,
 		"user", u.ID.String(), nil)
 	return nil
@@ -323,10 +388,9 @@ func (s *Service) ResetPasswordByAdmin(ctx context.Context, adminID, userID uuid
 	if err != nil {
 		return "", err
 	}
-	if err := s.Users.SetPasswordHash(ctx, s.TenantID, userID, h, true); err != nil {
+	if err := s.Users.SetPasswordAndRevokeAll(ctx, s.TenantID, userID, h, true, "password_reset"); err != nil {
 		return "", err
 	}
-	_ = s.Users.RevokeAllForUser(ctx, s.TenantID, userID, "password_reset")
 	s.writeAudit(ctx, audit.ActorUser(adminID), ip, audit.ActionUserPasswordResetByAdmin,
 		"user", userID.String(), nil)
 	return tempPassword, nil

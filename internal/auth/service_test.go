@@ -142,6 +142,17 @@ func currentTOTP(t *testing.T, secret string) string {
 	return code
 }
 
+// waitForNextTOTPStep sleeps until the next 30-second TOTP step boundary plus a
+// small buffer. Used by tests that need to VerifyMFA twice for the same user
+// without tripping the service's per-user step replay guard.
+func waitForNextTOTPStep(t *testing.T) {
+	t.Helper()
+	const period = 30
+	now := time.Now().Unix()
+	next := ((now / period) + 1) * period
+	time.Sleep(time.Duration(next-now)*time.Second + 250*time.Millisecond)
+}
+
 func TestService_Login_InvalidCredentials(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test requires Docker")
@@ -223,6 +234,62 @@ func TestService_Login_Then_MFASetup_IssuesTokens(t *testing.T) {
 	}
 	if got.TOTPSecretEncrypted == nil {
 		t.Error("TOTPSecretEncrypted is nil after MFA setup, want populated")
+	}
+}
+
+func TestService_VerifyMFA_RejectsReplayedCode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	svc, cleanup := setupService(t)
+	defer cleanup()
+
+	const pw = "correct-horse-battery-staple"
+	u, secret := createUser(t, svc, "replay@x.test", pw, "operator", true)
+	ctx := context.Background()
+	ip := net.ParseIP("203.0.113.9")
+
+	// First successful Login+VerifyMFA.
+	r1, err := svc.Login(ctx, u.Email, pw, ip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := currentTOTP(t, secret)
+	if _, err := svc.VerifyMFA(ctx, r1.StepUpToken, code, "", "ua/1.0", ip); err != nil {
+		t.Fatalf("first VerifyMFA: %v", err)
+	}
+
+	// Second Login then re-use same TOTP code in the same 30s window → must be rejected.
+	r2, err := svc.Login(ctx, u.Email, pw, ip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.VerifyMFA(ctx, r2.StepUpToken, code, "", "ua/1.0", ip); !errors.Is(err, ErrMFAInvalid) {
+		t.Fatalf("replayed TOTP: err = %v, want ErrMFAInvalid", err)
+	}
+}
+
+func TestLogin_UnknownEmail_BurnsArgon2Time(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	svc, cleanup := setupService(t)
+	defer cleanup()
+
+	// Prime the dummyHash sync.Once so the first call's hashing cost is not
+	// counted in the measured branch.
+	_ = dummyHash()
+
+	start := time.Now()
+	_, err := svc.Login(context.Background(), "ghost@x.test", "any-password-value", net.ParseIP("203.0.113.10"))
+	elapsed := time.Since(start)
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("Login(unknown email) err = %v, want ErrInvalidCredentials", err)
+	}
+	// Argon2 with OWASP defaults should take well over 50 ms; use a conservative
+	// threshold to avoid flakiness on slower CI boxes.
+	if elapsed < 50*time.Millisecond {
+		t.Errorf("unknown-email Login took %v, expected >=50ms (timing equalization should burn argon2 cycles)", elapsed)
 	}
 }
 
@@ -317,8 +384,9 @@ func TestService_LogoutAll_RevokesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyMFA 1: %v", err)
 	}
-	// Second session. TOTP replay protection is not implemented at the
-	// service layer yet (see totp.go doc), so same-window code is fine here.
+	// Second session. Wait until the next TOTP step so the service-layer replay
+	// guard does not reject the (otherwise-valid) same-window code.
+	waitForNextTOTPStep(t)
 	r2, _ := svc.Login(ctx, u.Email, pw, ip)
 	tok2, err := svc.VerifyMFA(ctx, r2.StepUpToken, currentTOTP(t, secret), "", "", ip)
 	if err != nil {
@@ -369,6 +437,11 @@ func TestService_ChangePassword_RequiresTOTP_AndRevokesSessions(t *testing.T) {
 	if err := svc.ChangePassword(ctx, u.ID, current, "short", currentTOTP(t, secret), ip); err == nil {
 		t.Fatal("expected password policy error, got nil")
 	}
+
+	// Wait for the next TOTP step so the per-user replay guard does not reject
+	// the happy-path ChangePassword (VerifyMFA above already consumed the
+	// current step).
+	waitForNextTOTPStep(t)
 
 	// Happy path.
 	if err := svc.ChangePassword(ctx, u.ID, current, next, currentTOTP(t, secret), ip); err != nil {

@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-integration lint proto clean docker-up docker-down
+.PHONY: help build test test-unit test-integration lint proto clean docker-up docker-down keys
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
@@ -43,3 +43,7 @@ docker-down:
 
 clean:
 	rm -rf bin/ dist/ coverage.out coverage.html
+
+keys:
+	mkdir -p deploy/secrets
+	$(GO) run ./cmd/lmdm-keygen --out deploy/secrets

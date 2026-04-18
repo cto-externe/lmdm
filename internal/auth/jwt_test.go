@@ -93,3 +93,45 @@ func TestVerifyAccess_RejectsWrongIssuer(t *testing.T) {
 		t.Fatalf("expected ErrTokenInvalidIssuer, got %v", err)
 	}
 }
+
+func TestStepUp_RoundTrip(t *testing.T) {
+	pk := newTestKey(t)
+	s := NewJWTSigner(pk, 15*time.Minute)
+	uid, tid := uuid.New(), uuid.New()
+	tok, err := s.IssueStepUp(uid, tid, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotUID, gotTID, err := s.VerifyStepUp(tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotUID != uid || gotTID != tid {
+		t.Fatalf("mismatch uid=%v tid=%v", gotUID, gotTID)
+	}
+}
+
+func TestStepUp_RejectsExpired(t *testing.T) {
+	pk := newTestKey(t)
+	s := NewJWTSigner(pk, 15*time.Minute)
+	tok, _ := s.IssueStepUp(uuid.New(), uuid.New(), -1*time.Second)
+	if _, _, err := s.VerifyStepUp(tok); err == nil {
+		t.Error("expected expired step-up to be rejected")
+	}
+}
+
+func TestStepUp_DistinctFromAccessToken(t *testing.T) {
+	pk := newTestKey(t)
+	s := NewJWTSigner(pk, 15*time.Minute)
+	// Access token has no "stepup" audience; VerifyStepUp must reject it.
+	uid, tid := uuid.New(), uuid.New()
+	access, _ := s.IssueAccess(uid, tid, RoleAdmin, "a@b.test")
+	if _, _, err := s.VerifyStepUp(access); err == nil {
+		t.Error("access token must not verify as step-up")
+	}
+	// Conversely, a step-up token MUST NOT verify as access.
+	stepup, _ := s.IssueStepUp(uid, tid, 5*time.Minute)
+	if _, err := s.VerifyAccess(stepup); err == nil {
+		t.Error("step-up token must not verify as access")
+	}
+}

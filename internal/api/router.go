@@ -9,11 +9,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 
+	"github.com/cto-externe/lmdm/internal/audit"
 	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/tokens"
+	"github.com/cto-externe/lmdm/internal/users"
 )
 
 // Deps holds the dependencies injected into API handlers.
@@ -28,6 +30,8 @@ type Deps struct {
 	Signer         *auth.JWTSigner
 	LoginRateLimit *auth.RateLimiter // 10 per 10 min
 	MFARateLimit   *auth.RateLimiter // 60 per min
+	Users          *users.Repository
+	Audit          *audit.Writer
 }
 
 // Router returns an http.Handler with all /api/v1/ routes registered.

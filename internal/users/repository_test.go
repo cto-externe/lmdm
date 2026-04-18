@@ -336,7 +336,9 @@ func setupRLSRepo(t *testing.T) (*Repository, uuid.UUID, uuid.UUID, func()) {
 			('22222222-2222-2222-2222-222222222222', 'tenant-b');
 		CREATE ROLE lmdm_app LOGIN PASSWORD 'appsecret';
 		GRANT SELECT, INSERT, UPDATE, DELETE ON users TO lmdm_app;
+		GRANT SELECT, INSERT, UPDATE, DELETE ON refresh_tokens TO lmdm_app;
 		ALTER TABLE users FORCE ROW LEVEL SECURITY;
+		ALTER TABLE refresh_tokens FORCE ROW LEVEL SECURITY;
 	`); err != nil {
 		ownerPool.Close()
 		_ = pg.Terminate(ctx)

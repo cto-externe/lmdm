@@ -143,10 +143,10 @@ func TestIntegration_Write_PersistsAllFields(t *testing.T) {
 	}
 
 	var (
-		actor, action             string
-		resType, resID            *string
-		sourceIP                  *net.IP
-		detailsJSON               []byte
+		actor, action  string
+		resType, resID *string
+		sourceIP       *net.IP
+		detailsJSON    []byte
 	)
 	if err := tx.QueryRow(ctx, `
 		SELECT actor, action, resource_type, resource_id, host(source_ip)::text, details::text

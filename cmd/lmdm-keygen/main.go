@@ -5,9 +5,10 @@
 // and the AES-256 master key (used by internal/auth.Encrypt/Decrypt for TOTP secrets).
 //
 // Output files (written to --out, default "."):
-//   jwt-priv.pem   ECDSA P-256 private key, PEM-encoded, chmod 0600
-//   jwt-pub.pem    corresponding public key, chmod 0644 (for future JWKS)
-//   enc-key.b64    32-byte random AES master key, base64 + trailing newline, chmod 0600
+//
+//	jwt-priv.pem   ECDSA P-256 private key, PEM-encoded, chmod 0600
+//	jwt-pub.pem    corresponding public key, chmod 0644 (for future JWKS)
+//	enc-key.b64    32-byte random AES master key, base64 + trailing newline, chmod 0600
 //
 // Once written, export LMDM_JWT_PRIVATE_KEY_PATH and LMDM_ENC_KEY_PATH to the
 // server so the AuthService can load them at boot.

@@ -140,7 +140,7 @@ func TestTOTPEnrollment_StringRedacts(t *testing.T) {
 
 func TestTOTPEnrollment_MarshalJSONRefuses(t *testing.T) {
 	e := &TOTPEnrollment{Secret: "JBSWY3DPEHPK3PXP", URI: "otpauth://x"} //nolint:gosec // test fixture, public RFC 6238 example secret
-	if _, err := json.Marshal(e); err == nil {                          //nolint:gosec // asserting MarshalJSON refuses serialisation
+	if _, err := json.Marshal(e); err == nil {                           //nolint:gosec // asserting MarshalJSON refuses serialisation
 		t.Error("MarshalJSON should refuse to serialize")
 	}
 }

@@ -41,7 +41,7 @@ var rolePerms = map[Role]map[Permission]struct{}{
 	},
 	RoleViewer: {
 		PermDevicesRead: {}, PermInventoryRead: {}, PermComplianceRead: {},
-		PermUpdatesRead: {},
+		PermUpdatesRead:  {},
 		PermProfilesRead: {},
 	},
 }

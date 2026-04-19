@@ -19,15 +19,20 @@ import (
 // files/...) and reverses the apply. Errors are logged but do NOT stop the
 // rollback — we try to restore as much as possible.
 //
+// The order is sysctl → files → services → packages. Rationale: if a profile
+// installed chrony and disabled systemd-timesyncd, the rollback must restore
+// sysctl-controlled NTP knobs first, then re-enable timesyncd via service,
+// then uninstall chrony — in that order to avoid leaving the host without NTP.
+//
 // If the snapshot directory is empty or doesn't contain any recognized
 // artifact, Rollback is a no-op (returns nil).
 func Rollback(ctx context.Context, snapDir string) error {
 	var errs []string
 
-	if err := rollbackFiles(ctx, snapDir); err != nil {
+	if err := rollbackSysctl(ctx, snapDir); err != nil {
 		errs = append(errs, err.Error())
 	}
-	if err := rollbackSysctl(ctx, snapDir); err != nil {
+	if err := rollbackFiles(ctx, snapDir); err != nil {
 		errs = append(errs, err.Error())
 	}
 	if err := rollbackServices(ctx, snapDir); err != nil {
@@ -39,6 +44,31 @@ func Rollback(ctx context.Context, snapDir string) error {
 
 	if len(errs) > 0 {
 		return fmt.Errorf("rollback: %d errors: %s", len(errs), strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// RollbackWithProviders first invokes every Action that implements
+// RollbackProvider, in reverse apply order, then runs the central Rollback
+// for snapshot artifacts (sysctl/files/services/packages).
+//
+// Errors from individual providers do NOT short-circuit; we collect and
+// continue, then run the central rollback even if a provider failed.
+// Returns a single aggregated error (or nil if all succeeded).
+func RollbackWithProviders(ctx context.Context, snapDir string, actions []Action) error {
+	var errs []string
+	for i := len(actions) - 1; i >= 0; i-- {
+		if rb, ok := actions[i].(RollbackProvider); ok {
+			if err := rb.Rollback(ctx, snapDir); err != nil {
+				errs = append(errs, fmt.Sprintf("provider[%d]: %v", i, err))
+			}
+		}
+	}
+	if err := Rollback(ctx, snapDir); err != nil {
+		errs = append(errs, err.Error())
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("rollback with providers: %d errors: %s", len(errs), strings.Join(errs, "; "))
 	}
 	return nil
 }

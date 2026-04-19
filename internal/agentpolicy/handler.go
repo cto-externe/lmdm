@@ -19,13 +19,22 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
+	"github.com/cto-externe/lmdm/internal/agenthealthcheck"
+	"github.com/cto-externe/lmdm/internal/agentstate"
 	"github.com/cto-externe/lmdm/internal/distro"
 	"github.com/cto-externe/lmdm/internal/policy"
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
 )
 
+// JetStream is the minimal surface needed for publishing CommandResult with
+// ack. Production impl is a thin wrapper around jetstream.JetStream.Publish.
+type JetStream interface {
+	PublishWithAck(ctx context.Context, subject string, data []byte) error
+}
+
 // Handler subscribes to fleet.agent.{deviceID}.commands and processes
-// ApplyProfileCommand messages.
+// ApplyProfileCommand, RemoveProfileCommand, ApplyPatchesCommand,
+// RollbackCommand, and RunHealthCheckCommand messages.
 type Handler struct {
 	nc        *nats.Conn
 	serverPub *pqhybrid.SigningPublicKey
@@ -35,19 +44,65 @@ type Handler struct {
 	store     *ProfileStore
 	pm        distro.PatchManager
 	sub       *nats.Subscription
+
+	js              JetStream
+	state           *agentstate.Store
+	hcRunner        HealthCheckRunner
+	rollbackHandler *RollbackHandler
+	hcHandler       *HealthCheckHandler
+	ackTimeout      time.Duration
+}
+
+// HandlerOptions groups the dependencies for NewHandler. Optional deps (JS,
+// State, HCRunner) may be nil — the watchdog/ack path degrades gracefully.
+type HandlerOptions struct {
+	NC         *nats.Conn
+	ServerPub  *pqhybrid.SigningPublicKey
+	Registry   *policy.Registry
+	DeviceID   string
+	SnapRoot   string
+	Store      *ProfileStore
+	PM         distro.PatchManager
+	JS         JetStream
+	State      *agentstate.Store
+	HCRunner   HealthCheckRunner
+	AckTimeout time.Duration
 }
 
 // NewHandler wires a Handler.
-func NewHandler(nc *nats.Conn, serverPub *pqhybrid.SigningPublicKey, reg *policy.Registry, deviceID, snapRoot string, store *ProfileStore, pm distro.PatchManager) *Handler {
-	return &Handler{
-		nc:        nc,
-		serverPub: serverPub,
-		registry:  reg,
-		deviceID:  deviceID,
-		snapRoot:  snapRoot,
-		store:     store,
-		pm:        pm,
+func NewHandler(opts HandlerOptions) *Handler {
+	h := &Handler{
+		nc:         opts.NC,
+		serverPub:  opts.ServerPub,
+		registry:   opts.Registry,
+		deviceID:   opts.DeviceID,
+		snapRoot:   opts.SnapRoot,
+		store:      opts.Store,
+		pm:         opts.PM,
+		js:         opts.JS,
+		state:      opts.State,
+		hcRunner:   opts.HCRunner,
+		ackTimeout: opts.AckTimeout,
 	}
+	if h.ackTimeout == 0 {
+		h.ackTimeout = 10 * time.Second
+	}
+	pub := &natsCorePublisher{nc: opts.NC}
+	h.rollbackHandler = NewRollbackHandler(pub, opts.State, opts.SnapRoot, opts.DeviceID)
+	if opts.HCRunner != nil {
+		h.hcHandler = NewHealthCheckHandler(pub, opts.HCRunner, opts.DeviceID)
+	}
+	return h
+}
+
+// natsCorePublisher adapts *nats.Conn to ResultPublisher.
+type natsCorePublisher struct{ nc *nats.Conn }
+
+func (p *natsCorePublisher) Publish(subject string, data []byte) error {
+	if p.nc == nil {
+		return fmt.Errorf("no nats connection")
+	}
+	return p.nc.Publish(subject, data)
 }
 
 // Start subscribes to the agent's command subject.
@@ -88,6 +143,14 @@ func (h *Handler) handleMessage(msg *nats.Msg) {
 		h.handleRemoveProfile(ctx, env.GetRemoveProfile().GetProfileId().GetId())
 	case env.GetApplyPatches() != nil:
 		h.handleApplyPatches(ctx, env.GetApplyPatches())
+	case env.GetRollback() != nil:
+		if h.rollbackHandler != nil {
+			h.rollbackHandler.Handle(ctx, env.GetCommandId(), env.GetRollback())
+		}
+	case env.GetRunHealthCheck() != nil:
+		if h.hcHandler != nil {
+			h.hcHandler.Handle(ctx, env.GetCommandId(), env.GetRunHealthCheck())
+		}
 	default:
 		// Not a command we handle — ignore.
 	}
@@ -111,13 +174,131 @@ func (h *Handler) handleApplyProfile(ctx context.Context, data []byte, env *lmdm
 		return
 	}
 
-	result := policy.Execute(ctx, actions, h.snapRoot, deploymentID)
+	snapDir := filepath.Join(h.snapRoot, deploymentID)
 
-	if result.AllCompliant && parsed.ProfileID != "" {
-		_ = h.store.Save(parsed.ProfileID, parsed.ProfileContent)
+	// 1. Persist pending BEFORE Apply (watchdog marker).
+	if h.state != nil {
+		if err := h.state.SetPending(agentstate.PendingDeployment{
+			DeploymentID: deploymentID,
+			ProfileID:    parsed.ProfileID,
+			SnapDir:      snapDir,
+			StartedAt:    time.Now(),
+		}); err != nil {
+			slog.Warn("agentpolicy: set pending failed", "err", err)
+		}
 	}
 
+	// 2. Run the executor.
+	result := policy.Execute(ctx, actions, h.snapRoot, deploymentID)
+
+	// 3. Run built-in health checks after apply.
+	var hcResults []agenthealthcheck.HealthCheckResult
+	if h.hcRunner != nil {
+		hcResults = h.hcRunner.RunBuiltins(ctx)
+	}
+	anyHCFailed := false
+	for _, r := range hcResults {
+		if !r.Passed {
+			anyHCFailed = true
+			break
+		}
+	}
+
+	// 4. Build a CommandResult proto for server consumption.
+	cmdResult := &lmdmv1.CommandResult{
+		CommandId:    env.GetCommandId(),
+		DeviceId:     &lmdmv1.DeviceID{Id: h.deviceID},
+		Timestamp:    timestamppb.Now(),
+		DeploymentId: env.GetDeploymentId(),
+		IsCanary:     env.GetIsCanary(),
+		SnapshotId:   deploymentID,
+	}
+	for _, r := range hcResults {
+		cmdResult.HealthChecks = append(cmdResult.HealthChecks, &lmdmv1.HealthCheckResult{
+			Name: r.Name, Passed: r.Passed, Detail: r.Detail,
+		})
+	}
+
+	applySuccess := result.AllCompliant
+
+	// 5. Failure path: rollback + best-effort publish + clear pending.
+	if !applySuccess || anyHCFailed {
+		if rbErr := policy.Rollback(ctx, snapDir); rbErr != nil {
+			slog.Warn("agentpolicy: rollback after failed apply/hc returned error", "err", rbErr)
+		}
+		cmdResult.Success = false
+		if !applySuccess {
+			cmdResult.Error = "apply failed"
+		} else {
+			cmdResult.Error = "health checks failed"
+		}
+		h.publishResultBestEffort(cmdResult)
+		if h.state != nil {
+			if err := h.state.ClearPending(); err != nil {
+				slog.Warn("agentpolicy: clear pending after failure", "err", err)
+			}
+		}
+		h.publishCompliance(result)
+		return
+	}
+
+	// 6. Success path: publish with ack on JetStream.
+	cmdResult.Success = true
+
+	ackCtx, cancel := context.WithTimeout(ctx, h.ackTimeout)
+	defer cancel()
+	if err := h.publishResultWithAck(ackCtx, cmdResult); err != nil {
+		slog.Warn("agentpolicy: ack timeout / error, rolling back", "err", err)
+		if rbErr := policy.Rollback(ctx, snapDir); rbErr != nil {
+			slog.Warn("agentpolicy: watchdog rollback error", "err", rbErr)
+		}
+		cmdResult.Success = false
+		cmdResult.Error = "ack timeout: " + err.Error()
+		h.publishResultBestEffort(cmdResult)
+		// Keep pending for boot-time watchdog to re-attempt if we survive.
+		h.publishCompliance(result)
+		return
+	}
+
+	// Ack received — clear pending and save profile.
+	if h.state != nil {
+		if err := h.state.ClearPending(); err != nil {
+			slog.Warn("agentpolicy: clear pending after ack", "err", err)
+		}
+	}
+	if parsed.ProfileID != "" {
+		_ = h.store.Save(parsed.ProfileID, parsed.ProfileContent)
+	}
 	h.publishCompliance(result)
+}
+
+// publishResultWithAck publishes the CommandResult on the COMMAND_RESULTS
+// JetStream subject and waits for the server-side ack (reliable delivery).
+func (h *Handler) publishResultWithAck(ctx context.Context, result *lmdmv1.CommandResult) error {
+	if h.js == nil {
+		return fmt.Errorf("no jetstream wired")
+	}
+	data, err := proto.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshal CommandResult: %w", err)
+	}
+	subject := "fleet.agent." + h.deviceID + ".command-result"
+	return h.js.PublishWithAck(ctx, subject, data)
+}
+
+// publishResultBestEffort publishes via core NATS (no ack). Used for failure
+// paths where we've already decided to roll back — we want the server to see
+// the result eventually but don't block on it.
+func (h *Handler) publishResultBestEffort(result *lmdmv1.CommandResult) {
+	if h.nc == nil {
+		return
+	}
+	data, err := proto.Marshal(result)
+	if err != nil {
+		return
+	}
+	subject := "fleet.agent." + h.deviceID + ".command-result"
+	_ = h.nc.Publish(subject, data)
 }
 
 func (h *Handler) handleRemoveProfile(ctx context.Context, profileID string) {
@@ -216,6 +397,9 @@ func (h *Handler) publishCompliance(result policy.ExecutionResult) {
 }
 
 func (h *Handler) publishComplianceStatus(status lmdmv1.ComplianceStatus, total, passed, failed uint32) {
+	if h.nc == nil {
+		return
+	}
 	report := &lmdmv1.ComplianceReport{
 		DeviceId:      &lmdmv1.DeviceID{Id: h.deviceID},
 		Timestamp:     timestamppb.New(time.Now().UTC()),

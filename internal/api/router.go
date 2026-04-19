@@ -12,6 +12,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/audit"
 	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/deployments"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/tokens"
@@ -20,14 +21,16 @@ import (
 
 // Deps holds dependencies injected into API handlers.
 type Deps struct {
-	Pool     *db.Pool
-	Devices  *devices.Repository
-	Tokens   *tokens.Repository
-	Profiles *profiles.Repository
-	Users    *users.Repository
-	Audit    *audit.Writer
-	Auth     *auth.Service
-	Signer   *auth.JWTSigner
+	Pool              *db.Pool
+	Devices           *devices.Repository
+	Tokens            *tokens.Repository
+	Profiles          *profiles.Repository
+	Users             *users.Repository
+	Deployments       *deployments.Repository
+	DeploymentsEngine *deployments.Engine
+	Audit             *audit.Writer
+	Auth              *auth.Service
+	Signer            *auth.JWTSigner
 
 	LoginRateLimit *auth.RateLimiter
 	MFARateLimit   *auth.RateLimiter
@@ -98,6 +101,18 @@ func Router(d *Deps) http.Handler {
 		authed(auth.RequirePermission(auth.PermUsersManage, http.HandlerFunc(d.handlePatchUser))))
 	mux.Handle("POST /api/v1/users/{id}/reset-password",
 		authed(auth.RequirePermission(auth.PermUsersManage, http.HandlerFunc(d.handleResetPassword))))
+
+	// ----- Deployments -----
+	mux.Handle("POST /api/v1/deployments",
+		authed(auth.RequirePermission(auth.PermDeploymentsManage, http.HandlerFunc(d.handleCreateDeployment))))
+	mux.Handle("GET /api/v1/deployments",
+		authed(auth.RequirePermission(auth.PermDeploymentsRead, http.HandlerFunc(d.handleListDeployments))))
+	mux.Handle("GET /api/v1/deployments/{id}",
+		authed(auth.RequirePermission(auth.PermDeploymentsRead, http.HandlerFunc(d.handleGetDeployment))))
+	mux.Handle("POST /api/v1/deployments/{id}/validate",
+		authed(auth.RequirePermission(auth.PermDeploymentsManage, http.HandlerFunc(d.handleValidateDeployment))))
+	mux.Handle("POST /api/v1/deployments/{id}/rollback",
+		authed(auth.RequirePermission(auth.PermDeploymentsManage, http.HandlerFunc(d.handleRollbackDeployment))))
 
 	return mux
 }

@@ -19,6 +19,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.42.0
 	github.com/zeebo/blake3 v0.2.4
+	go.etcd.io/bbolt v1.4.3
 	golang.org/x/crypto v0.50.0
 	golang.org/x/term v0.42.0
 	google.golang.org/grpc v1.80.0

@@ -33,4 +33,7 @@ const (
 	ActionProfileAssigned          Action = "profile.assigned"
 	ActionEnrollmentTokenCreated   Action = "enrollment_token.created"
 	ActionDeviceUpdatesApplied     Action = "device_updates.applied"
+	ActionDeploymentCreated        Action = "deployment.created"
+	ActionDeploymentValidated      Action = "deployment.validated"
+	ActionDeploymentRolledBack     Action = "deployment.rolled_back_by_admin"
 )

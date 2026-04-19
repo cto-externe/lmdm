@@ -61,3 +61,16 @@ func DefaultRegistry() *Registry {
 	r.Register("sysctl", NewSysctl)
 	return r
 }
+
+// RollbackProvider is an optional interface an Action may implement to provide
+// its own rollback logic. When the deployment-level RollbackWithProviders runs,
+// it first invokes every provider in reverse apply order, then falls back to
+// the central Rollback for snapshot artifacts left untouched.
+//
+// The 4 MVP action types (package_ensure, service_ensure, file_content, sysctl)
+// rely entirely on the central rollback and do NOT implement this interface.
+// Future action types with non-file/non-package state (e.g. nftables_rules,
+// udev_rule) can opt in.
+type RollbackProvider interface {
+	Rollback(ctx context.Context, snapDir string) error
+}

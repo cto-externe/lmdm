@@ -28,12 +28,14 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentcert"
 	"github.com/cto-externe/lmdm/internal/agentenroll"
 	"github.com/cto-externe/lmdm/internal/agenthealth"
+	"github.com/cto-externe/lmdm/internal/agenthealthcheck"
 	"github.com/cto-externe/lmdm/internal/agenthealthrunner"
 	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentkey"
 	"github.com/cto-externe/lmdm/internal/agentpatchrunner"
 	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
+	"github.com/cto-externe/lmdm/internal/agentstate"
 	"github.com/cto-externe/lmdm/internal/distro"
 	"github.com/cto-externe/lmdm/internal/policy"
 )
@@ -159,18 +161,43 @@ func cmdRun(args []string) error {
 	}
 	defer bus.Close()
 
+	// Enable JetStream for ack-bearing publishes (deployment watchdog).
+	// Degrade gracefully if JetStream is unavailable (e.g. test setups).
+	if err := bus.EnableJetStream(); err != nil {
+		slog.Warn("agent: jetstream unavailable, watchdog ack disabled", "err", err)
+	}
+
+	// Open BoltDB state store (pending-deployment tracking).
+	statePath := filepath.Join(*dataDir, "agent-state.db")
+	stateStore, err := agentstate.Open(statePath)
+	if err != nil {
+		return fmt.Errorf("agentstate: %w", err)
+	}
+	defer func() { _ = stateStore.Close() }()
+
+	// Sweep stale pending deployments (rollback-on-boot watchdog).
+	if err := agentpolicy.SweepPending(ctx, stateStore, agentpolicy.DefaultMaxPendingAge); err != nil {
+		slog.Error("agent: pending deployment sweep failed", "err", err)
+	}
+
+	// Health check runner shared between policy handler and built-in checks.
+	hcRunner := agenthealthcheck.NewRunner(bus, agenthealth.NewExecCommandRunner())
+
 	// Policy handler: subscribe to commands, apply profiles, publish compliance.
 	snapRoot := filepath.Join(*dataDir, "snapshots")
 	profileStore := agentpolicy.NewProfileStore(filepath.Join(*dataDir, "profiles"))
-	policyHandler := agentpolicy.NewHandler(
-		bus.NC(),
-		id.ServerPub,
-		policy.DefaultRegistry(),
-		deviceID,
-		snapRoot,
-		profileStore,
-		pm,
-	)
+	policyHandler := agentpolicy.NewHandler(agentpolicy.HandlerOptions{
+		NC:        bus.NC(),
+		ServerPub: id.ServerPub,
+		Registry:  policy.DefaultRegistry(),
+		DeviceID:  deviceID,
+		SnapRoot:  snapRoot,
+		Store:     profileStore,
+		PM:        pm,
+		JS:        bus,
+		State:     stateStore,
+		HCRunner:  hcRunner,
+	})
 	if err := policyHandler.Start(); err != nil {
 		return fmt.Errorf("policy handler: %w", err)
 	}

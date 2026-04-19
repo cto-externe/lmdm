@@ -72,7 +72,14 @@ func listPhysicalDisks() ([]string, error) {
 // returns a slice of DiskHealth proto messages. Missing tools log WARN but do
 // not fail the collection.
 func collectDisks(ctx context.Context, runner CommandRunner) ([]*lmdmv1.DiskHealth, error) {
-	paths, err := listPhysicalDisks()
+	return collectDisksFrom(ctx, runner, listPhysicalDisks)
+}
+
+// collectDisksFrom is the testable variant that takes an explicit disk lister.
+// Production code calls collectDisks; tests inject a stub lister that returns
+// canned device paths so the smartctl/nvme command keys line up with fixtures.
+func collectDisksFrom(ctx context.Context, runner CommandRunner, listDisks func() ([]string, error)) ([]*lmdmv1.DiskHealth, error) {
+	paths, err := listDisks()
 	if err != nil {
 		return nil, err
 	}

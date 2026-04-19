@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/cto-externe/lmdm/internal/audit"
 	"github.com/cto-externe/lmdm/internal/auth"
 	"github.com/cto-externe/lmdm/internal/deployments"
 )
@@ -151,6 +152,22 @@ func (d *Deps) handleCreateDeployment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if d.Audit != nil {
+		_ = d.Audit.Write(r.Context(), audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(p.UserID),
+			Action:       audit.ActionDeploymentCreated,
+			ResourceType: "deployment",
+			ResourceID:   created.ID.String(),
+			SourceIP:     clientIP(r),
+			Details: map[string]any{
+				"profile_id":       created.ProfileID,
+				"canary_device_id": created.CanaryDeviceID,
+				"target_count":     len(created.TargetDeviceIDs),
+				"validation_mode":  string(created.ValidationMode),
+			},
+		})
+	}
 	writeJSON(w, http.StatusCreated, toDeploymentJSON(created))
 }
 
@@ -225,6 +242,16 @@ func (d *Deps) handleValidateDeployment(w http.ResponseWriter, r *http.Request) 
 		DeploymentID: id,
 		ByUserID:     p.UserID,
 	}
+	if d.Audit != nil {
+		_ = d.Audit.Write(r.Context(), audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(p.UserID),
+			Action:       audit.ActionDeploymentValidated,
+			ResourceType: "deployment",
+			ResourceID:   id.String(),
+			SourceIP:     clientIP(r),
+		})
+	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
@@ -255,6 +282,17 @@ func (d *Deps) handleRollbackDeployment(w http.ResponseWriter, r *http.Request) 
 		DeploymentID: id,
 		ByUserID:     p.UserID,
 		Reason:       req.Reason,
+	}
+	if d.Audit != nil {
+		_ = d.Audit.Write(r.Context(), audit.Event{
+			TenantID:     d.TenantID,
+			Actor:        audit.ActorUser(p.UserID),
+			Action:       audit.ActionDeploymentRolledBack,
+			ResourceType: "deployment",
+			ResourceID:   id.String(),
+			SourceIP:     clientIP(r),
+			Details:      map[string]any{"reason": req.Reason},
+		})
 	}
 	w.WriteHeader(http.StatusAccepted)
 }

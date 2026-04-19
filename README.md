@@ -127,6 +127,19 @@ Score global GREEN / ORANGE / RED calculé côté agent et remonté au serveur. 
 
 Voir [docs/fr/health.md](docs/fr/health.md) pour les seuils détaillés et le format de réponse.
 
+### Déploiements canary et rollback
+
+Les profils sont poussés en deux temps : d'abord sur un device canary, puis sur le reste du groupe après validation (manuelle, semi-auto avec timer 30 min, ou auto). En cas d'échec du canary, le reste du parc n'est jamais touché. En cas d'ack NATS manquant post-application, l'agent rollback automatiquement.
+
+- Machine à états à 9 statuts persistée en DB
+- Mode `manual` / `semi_auto` / `auto` configurable par déploiement
+- Seuil d'abort 10% par défaut pendant le rollout
+- Health checks post-application (4 built-in + 5 types custom)
+- Agent persiste le pending deployment en BoltDB (résilient aux crashes)
+- Watchdog au démarrage agent : rollback automatique des pending stale
+
+Voir [docs/fr/deployments.md](docs/fr/deployments.md) pour le guide opérationnel complet.
+
 ### Authentification console et RBAC
 
 LMDM inclut une authentification console avec MFA TOTP obligatoire :

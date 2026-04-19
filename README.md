@@ -114,6 +114,19 @@ curl -s -X POST http://localhost:8080/api/v1/tokens \
   -d '{"description":"test","max_uses":5,"ttl_seconds":86400}' | jq   # créer
 ```
 
+### Health monitoring
+
+LMDM remonte toutes les 6 heures la santé matérielle de chaque poste :
+
+- **Disques** — SMART (SATA) et NVMe smart-log (wear, errors, température)
+- **Batterie** — capacité, cycles, % santé via sysfs
+- **Températures** — CPU/GPU via hwmon
+- **Firmware** — mises à jour disponibles via fwupd/LVFS
+
+Score global GREEN / ORANGE / RED calculé côté agent et remonté au serveur. Consultable via `GET /api/v1/devices/{id}/health`.
+
+Voir [docs/fr/health.md](docs/fr/health.md) pour les seuils détaillés et le format de réponse.
+
 ### Authentification console et RBAC
 
 LMDM inclut une authentification console avec MFA TOTP obligatoire :

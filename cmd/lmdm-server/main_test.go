@@ -749,7 +749,14 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 	defer agentNC.Close()
 
 	snapRoot := t.TempDir()
-	handler := agentpolicy.NewHandler(agentNC, res.ServerSigningKey, policy.DefaultRegistry(), res.DeviceID, snapRoot, agentpolicy.NewProfileStore(t.TempDir()), nil)
+	handler := agentpolicy.NewHandler(agentpolicy.HandlerOptions{
+		NC:        agentNC,
+		ServerPub: res.ServerSigningKey,
+		Registry:  policy.DefaultRegistry(),
+		DeviceID:  res.DeviceID,
+		SnapRoot:  snapRoot,
+		Store:     agentpolicy.NewProfileStore(t.TempDir()),
+	})
 	if err := handler.Start(); err != nil {
 		t.Fatal(err)
 	}

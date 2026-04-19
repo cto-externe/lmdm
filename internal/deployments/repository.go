@@ -45,6 +45,30 @@ type Repository struct {
 // New wires a Repository to a connection pool.
 func New(pool *db.Pool) *Repository { return &Repository{pool: pool} }
 
+// Pool returns the underlying connection pool. Callers that need to issue
+// tenant-agnostic lookups (e.g., resolving the tenant of an inbound message)
+// use this to bypass the tenant-scoped helpers.
+func (r *Repository) Pool() *db.Pool { return r.pool }
+
+// FindTenantForDeployment returns the tenant_id that owns deploymentID. The
+// Engine's bus-side handlers (COMMAND_RESULTS consumer, validation timer, REST
+// handlers that only carry a deployment id) receive a deployment id without a
+// tenant context; this lookup is what establishes the tenant so subsequent
+// reads/writes can run inside the RLS-scoped transaction helpers.
+//
+// Returns ErrNotFound when no row matches.
+func (r *Repository) FindTenantForDeployment(ctx context.Context, deploymentID uuid.UUID) (uuid.UUID, error) {
+	var tenantID uuid.UUID
+	err := r.pool.QueryRow(ctx, `SELECT tenant_id FROM deployments WHERE id = $1`, deploymentID).Scan(&tenantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("deployments: tenant lookup: %w", err)
+	}
+	return tenantID, nil
+}
+
 func (r *Repository) withTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

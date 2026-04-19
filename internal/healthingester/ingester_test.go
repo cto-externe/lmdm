@@ -133,7 +133,7 @@ func TestIntegrationHealthIngester_PersistsSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ing := New(bus, pool)
+	ing := New(bus, repo)
 	if err := ing.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

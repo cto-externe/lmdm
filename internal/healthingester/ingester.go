@@ -14,26 +14,25 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
-	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 )
 
 // Ingester subscribes to fleet.agent.*.health and persists snapshots.
 type Ingester struct {
 	bus      *natsbus.Bus
-	pool     *db.Pool
+	devices  *devices.Repository
 	consumer jetstream.ConsumeContext
 }
 
 // New wires an Ingester.
-func New(bus *natsbus.Bus, pool *db.Pool) *Ingester {
-	return &Ingester{bus: bus, pool: pool}
+func New(bus *natsbus.Bus, devicesRepo *devices.Repository) *Ingester {
+	return &Ingester{bus: bus, devices: devicesRepo}
 }
 
 // Start creates a JetStream consumer and begins processing.
@@ -82,9 +81,9 @@ func (i *Ingester) handle(ctx context.Context, msg jetstream.Msg) {
 	}
 
 	// Resolve tenant from the device row (we don't carry tenant_id on the wire).
-	var tenantID uuid.UUID
-	if err := i.pool.QueryRow(ctx, `SELECT tenant_id FROM devices WHERE id = $1`, deviceID).Scan(&tenantID); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+	tenantID, err := i.devices.FindTenantForDevice(ctx, deviceID)
+	if err != nil {
+		if errors.Is(err, devices.ErrNotFound) {
 			_ = msg.Term()
 			return
 		}
@@ -103,47 +102,15 @@ func (i *Ingester) handle(ctx context.Context, msg jetstream.Msg) {
 	dbScore := healthScoreToDB(snap.OverallScore)
 	summary := summarize(&snap)
 
-	tx, err := i.pool.Begin(ctx)
-	if err != nil {
-		_ = msg.Nak()
-		return
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Set the tenant GUC for this transaction so RLS policies on
-	// health_snapshots accept the insert.
-	if _, err := tx.Exec(ctx, `SELECT set_config('lmdm.tenant_id', $1, true)`, tenantID.String()); err != nil {
-		slog.Warn("healthingester: set tenant", "err", err)
-		_ = msg.Nak()
-		return
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO health_snapshots
-		    (tenant_id, device_id, overall_score, battery_health_pct,
-		     critical_disk_count, warning_disk_count,
-		     fwupd_updates_count, fwupd_critical_count, snapshot)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
-	`, tenantID, deviceID, dbScore, summary.batteryPct,
-		summary.criticalDisks, summary.warningDisks,
-		summary.fwupdUpdates, summary.fwupdCritical, jsonBytes); err != nil {
-		slog.Warn("healthingester: insert snapshot", "err", err)
-		_ = msg.Nak()
-		return
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE devices
-		SET last_health_at = NOW(),
-		    last_health_score = $1,
-		    battery_health_pct = $2,
-		    fwupd_updates_count = $3
-		WHERE id = $4 AND tenant_id = $5
-	`, dbScore, summary.batteryPct, summary.fwupdUpdates, deviceID, tenantID); err != nil {
-		slog.Warn("healthingester: update devices", "err", err)
-		_ = msg.Nak()
-		return
-	}
-	if err := tx.Commit(ctx); err != nil {
-		slog.Warn("healthingester: commit", "err", err)
+	if err := i.devices.UpsertHealthSnapshot(ctx, tenantID, deviceID, devices.HealthSummary{
+		OverallScore:       dbScore,
+		BatteryHealthPct:   summary.batteryPct,
+		CriticalDiskCount:  summary.criticalDisks,
+		WarningDiskCount:   summary.warningDisks,
+		FwupdUpdatesCount:  summary.fwupdUpdates,
+		FwupdCriticalCount: summary.fwupdCritical,
+	}, jsonBytes); err != nil {
+		slog.Warn("healthingester: upsert snapshot", "err", err)
 		_ = msg.Nak()
 		return
 	}

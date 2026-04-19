@@ -19,6 +19,22 @@ import (
 // ErrNotFound is returned when no device matches the lookup criteria.
 var ErrNotFound = errors.New("devices: not found")
 
+// ErrNoHealthSnapshot indicates that the device has never reported a health
+// snapshot (or the latest one has been pruned).
+var ErrNoHealthSnapshot = errors.New("devices: no health snapshot")
+
+// HealthSummary is the denormalized fragment we cache on the device row +
+// duplicate into the health_snapshots row. Built by the ingester from a
+// HealthSnapshot proto.
+type HealthSummary struct {
+	OverallScore       int16  // 0=GREEN, 1=ORANGE, 2=RED (matches DB CHECK)
+	BatteryHealthPct   *int32 // nil when no battery
+	CriticalDiskCount  int32
+	WarningDiskCount   int32
+	FwupdUpdatesCount  int32
+	FwupdCriticalCount int32
+}
+
 // Repository is the DB-backed device store.
 type Repository struct {
 	pool *db.Pool
@@ -219,6 +235,90 @@ type UpdateInfo struct {
 	IsSecurity       bool
 	Source           string
 	DetectedAt       time.Time
+}
+
+// FindTenantForDevice returns the tenant_id that owns the given device. This
+// is intended for callers (e.g., the health ingester) that receive a device
+// id over the wire without an associated tenant context. It bypasses the
+// tenant GUC because the lookup itself is what establishes the tenant.
+// Returns ErrNotFound if no device matches.
+func (r *Repository) FindTenantForDevice(ctx context.Context, deviceID uuid.UUID) (uuid.UUID, error) {
+	var tenantID uuid.UUID
+	err := r.pool.QueryRow(ctx, `SELECT tenant_id FROM devices WHERE id = $1`, deviceID).Scan(&tenantID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return uuid.Nil, ErrNotFound
+		}
+		return uuid.Nil, fmt.Errorf("devices: tenant lookup: %w", err)
+	}
+	return tenantID, nil
+}
+
+// UpsertHealthSnapshot inserts a row into health_snapshots and updates the
+// denormalized health columns on devices, in a single transaction scoped to
+// tenantID via the lmdm.tenant_id GUC (RLS-safe).
+func (r *Repository) UpsertHealthSnapshot(
+	ctx context.Context,
+	tenantID, deviceID uuid.UUID,
+	summary HealthSummary,
+	snapshotJSON []byte,
+) error {
+	return r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO health_snapshots
+			    (tenant_id, device_id, overall_score, battery_health_pct,
+			     critical_disk_count, warning_disk_count,
+			     fwupd_updates_count, fwupd_critical_count, snapshot)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		`, tenantID, deviceID, summary.OverallScore, summary.BatteryHealthPct,
+			summary.CriticalDiskCount, summary.WarningDiskCount,
+			summary.FwupdUpdatesCount, summary.FwupdCriticalCount, snapshotJSON); err != nil {
+			return fmt.Errorf("insert snapshot: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE devices
+			SET last_health_at = NOW(),
+			    last_health_score = $1,
+			    battery_health_pct = $2,
+			    fwupd_updates_count = $3
+			WHERE id = $4 AND tenant_id = $5
+		`, summary.OverallScore, summary.BatteryHealthPct,
+			summary.FwupdUpdatesCount, deviceID, tenantID); err != nil {
+			return fmt.Errorf("update device summary: %w", err)
+		}
+		return nil
+	})
+}
+
+// FindLatestHealth returns the most recent snapshot JSONB blob and its
+// timestamp for the device. Returns ErrNoHealthSnapshot if the device has
+// never reported.
+func (r *Repository) FindLatestHealth(ctx context.Context, tenantID, deviceID uuid.UUID) ([]byte, time.Time, error) {
+	var (
+		blob []byte
+		ts   time.Time
+	)
+	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		row := tx.QueryRow(ctx, `
+			SELECT snapshot, ts FROM health_snapshots
+			WHERE tenant_id = $1 AND device_id = $2
+			ORDER BY ts DESC LIMIT 1
+		`, tenantID, deviceID)
+		if err := row.Scan(&blob, &ts); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNoHealthSnapshot
+			}
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, ErrNoHealthSnapshot) {
+			return nil, time.Time{}, ErrNoHealthSnapshot
+		}
+		return nil, time.Time{}, fmt.Errorf("devices: latest health: %w", err)
+	}
+	return blob, ts, nil
 }
 
 // ListUpdates returns available updates for a device.

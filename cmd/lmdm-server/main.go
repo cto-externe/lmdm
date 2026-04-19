@@ -22,9 +22,11 @@ import (
 	"github.com/cto-externe/lmdm/internal/api"
 	"github.com/cto-externe/lmdm/internal/audit"
 	"github.com/cto-externe/lmdm/internal/auth"
+	"github.com/cto-externe/lmdm/internal/commandresultsingester"
 	"github.com/cto-externe/lmdm/internal/complianceingester"
 	"github.com/cto-externe/lmdm/internal/config"
 	"github.com/cto-externe/lmdm/internal/db"
+	"github.com/cto-externe/lmdm/internal/deployments"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/healthingester"
@@ -196,20 +198,41 @@ func run() error {
 		Issuer:   "LMDM",
 	}
 
+	// Deployments: repository + event-driven state machine engine + consumer of
+	// CommandResult acks from agents.
+	profileRepo := profiles.NewRepository(pool, serverPriv)
+	deploymentRepo := deployments.New(pool)
+	deploymentEngine := deployments.NewEngine(deploymentRepo, bus.NC(), profileRepo)
+	go func() {
+		if err := deploymentEngine.Run(ctx); err != nil {
+			slog.Error("deployment engine exited", "err", err)
+		}
+	}()
+	slog.Info("deployment engine started")
+
+	cmdResultsIng := commandresultsingester.New(bus, deviceRepo, deploymentEngine)
+	if err := cmdResultsIng.Start(ctx); err != nil {
+		return fmt.Errorf("command results ingester: %w", err)
+	}
+	defer cmdResultsIng.Stop()
+	slog.Info("command results ingester started")
+
 	// REST API — all endpoints under /api/v1/.
 	apiDeps := &api.Deps{
-		Pool:           pool,
-		Devices:        deviceRepo,
-		Tokens:         tokenRepo,
-		Profiles:       profiles.NewRepository(pool, serverPriv),
-		Users:          usersRepo,
-		Audit:          auditWriter,
-		Auth:           authSvc,
-		Signer:         jwtSigner,
-		LoginRateLimit: auth.NewRateLimiter(10, 10*time.Minute),
-		MFARateLimit:   auth.NewRateLimiter(60, time.Minute),
-		NATS:           bus.NC(),
-		TenantID:       tenantID,
+		Pool:              pool,
+		Devices:           deviceRepo,
+		Tokens:            tokenRepo,
+		Profiles:          profileRepo,
+		Users:             usersRepo,
+		Audit:             auditWriter,
+		Auth:              authSvc,
+		Signer:            jwtSigner,
+		Deployments:       deploymentRepo,
+		DeploymentsEngine: deploymentEngine,
+		LoginRateLimit:    auth.NewRateLimiter(10, 10*time.Minute),
+		MFARateLimit:      auth.NewRateLimiter(60, time.Minute),
+		NATS:              bus.NC(),
+		TenantID:          tenantID,
 	}
 	mux.Handle("/api/", api.Router(apiDeps))
 

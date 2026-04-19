@@ -62,6 +62,8 @@ func Router(d *Deps) http.Handler {
 		authed(auth.RequirePermission(auth.PermDevicesRead, http.HandlerFunc(d.handleGetDevice))))
 	mux.Handle("GET /api/v1/devices/{id}/inventory",
 		authed(auth.RequirePermission(auth.PermInventoryRead, http.HandlerFunc(d.handleGetInventory))))
+	mux.Handle("GET /api/v1/devices/{id}/health",
+		authed(auth.RequirePermission(auth.PermInventoryRead, http.HandlerFunc(d.handleGetHealth))))
 	mux.Handle("GET /api/v1/devices/{id}/compliance",
 		authed(auth.RequirePermission(auth.PermComplianceRead, http.HandlerFunc(d.handleGetCompliance))))
 	mux.Handle("GET /api/v1/devices/{id}/updates",

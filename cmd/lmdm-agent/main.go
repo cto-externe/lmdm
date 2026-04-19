@@ -27,6 +27,8 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentbus"
 	"github.com/cto-externe/lmdm/internal/agentcert"
 	"github.com/cto-externe/lmdm/internal/agentenroll"
+	"github.com/cto-externe/lmdm/internal/agenthealth"
+	"github.com/cto-externe/lmdm/internal/agenthealthrunner"
 	"github.com/cto-externe/lmdm/internal/agentinventoryrunner"
 	"github.com/cto-externe/lmdm/internal/agentkey"
 	"github.com/cto-externe/lmdm/internal/agentpatchrunner"
@@ -120,6 +122,7 @@ func cmdRun(args []string) error {
 	inventoryInterval := fs.Duration("inventory-interval", time.Hour, "inventory reporting interval")
 	complianceInterval := fs.Duration("compliance-interval", time.Hour, "compliance drift check interval")
 	patchInterval := fs.Duration("patch-interval", 6*time.Hour, "patch detection interval")
+	healthInterval := fs.Duration("health-interval", 6*time.Hour, "Health snapshot collection interval")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -183,6 +186,7 @@ func cmdRun(args []string) error {
 	if pm != nil {
 		goroutines++
 	}
+	goroutines++ // health (always on)
 	errCh := make(chan error, goroutines)
 	go func() { errCh <- heartbeat.Run(ctx) }()
 	go func() { errCh <- inventory.Run(ctx) }()
@@ -191,6 +195,9 @@ func cmdRun(args []string) error {
 		patchRunner := agentpatchrunner.New(bus, pm, deviceID, *patchInterval)
 		go func() { errCh <- patchRunner.Run(ctx) }()
 	}
+	healthCollector := agenthealth.NewCollector(agenthealth.NewExecCommandRunner())
+	healthRunner := agenthealthrunner.New(bus, healthCollector, deviceID, *healthInterval)
+	go func() { errCh <- healthRunner.Run(ctx) }()
 
 	// Wait for all goroutines to finish.
 	var firstErr error

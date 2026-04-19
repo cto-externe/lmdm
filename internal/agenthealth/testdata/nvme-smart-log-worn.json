@@ -1,0 +1,16 @@
+{
+  "critical_warning": 4,
+  "temperature": 52,
+  "avail_spare": 35,
+  "spare_thresh": 10,
+  "percent_used": 95,
+  "data_units_read": 987654321,
+  "data_units_written": 1876543210,
+  "host_read_commands": 500000000,
+  "host_write_commands": 800000000,
+  "media_errors": 20,
+  "num_err_log_entries": 17,
+  "unsafe_shutdowns": 12,
+  "power_cycles": 1500,
+  "power_on_hours": 35000
+}

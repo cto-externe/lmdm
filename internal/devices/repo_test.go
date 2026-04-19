@@ -5,6 +5,8 @@ package devices
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -237,6 +239,189 @@ func TestIntegrationListDevices(t *testing.T) {
 	}
 	if total != 1 {
 		t.Errorf("filtered total = %d, want 1", total)
+	}
+}
+
+func seedDeviceForHealth(t *testing.T, r *Repository, tenantID uuid.UUID, suffix string) uuid.UUID {
+	t.Helper()
+	d := &Device{
+		ID:                 uuid.New(),
+		TenantID:           tenantID,
+		Type:               TypeWorkstation,
+		Hostname:           "PC-HEALTH-" + suffix,
+		AgentPubkeyEd25519: []byte("ed-" + suffix),
+		AgentPubkeyMLDSA:   []byte("ml-" + suffix),
+	}
+	if err := r.Insert(context.Background(), d); err != nil {
+		t.Fatalf("seed device: %v", err)
+	}
+	return d.ID
+}
+
+func TestIntegrationUpsertHealthSnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse(defaultTenant)
+	deviceID := seedDeviceForHealth(t, r, tenantID, "upsert")
+
+	batteryPct := int32(82)
+	summary := HealthSummary{
+		OverallScore:       1, // ORANGE
+		BatteryHealthPct:   &batteryPct,
+		CriticalDiskCount:  2,
+		WarningDiskCount:   3,
+		FwupdUpdatesCount:  4,
+		FwupdCriticalCount: 1,
+	}
+	snapJSON := []byte(`{"deviceId":{"id":"` + deviceID.String() + `"},"overallScore":"HEALTH_SCORE_ORANGE"}`)
+
+	if err := r.UpsertHealthSnapshot(ctx, tenantID, deviceID, summary, snapJSON); err != nil {
+		t.Fatalf("UpsertHealthSnapshot: %v", err)
+	}
+
+	// Direct query to assert all snapshot columns landed.
+	var (
+		gotOverall   int16
+		gotBattery   *int32
+		gotCritical  int32
+		gotWarning   int32
+		gotFwupdAll  int32
+		gotFwupdCrit int32
+		gotSnapshot  []byte
+	)
+	if err := r.pool.QueryRow(ctx, `
+		SELECT overall_score, battery_health_pct, critical_disk_count, warning_disk_count,
+		       fwupd_updates_count, fwupd_critical_count, snapshot
+		  FROM health_snapshots WHERE device_id = $1
+	`, deviceID).Scan(&gotOverall, &gotBattery, &gotCritical, &gotWarning,
+		&gotFwupdAll, &gotFwupdCrit, &gotSnapshot); err != nil {
+		t.Fatalf("read snapshot row: %v", err)
+	}
+	if gotOverall != 1 {
+		t.Errorf("overall_score: got %d, want 1", gotOverall)
+	}
+	if gotBattery == nil || *gotBattery != 82 {
+		t.Errorf("battery_health_pct: got %v, want 82", gotBattery)
+	}
+	if gotCritical != 2 || gotWarning != 3 {
+		t.Errorf("disk counts: critical=%d warning=%d, want 2/3", gotCritical, gotWarning)
+	}
+	if gotFwupdAll != 4 || gotFwupdCrit != 1 {
+		t.Errorf("fwupd counts: total=%d critical=%d, want 4/1", gotFwupdAll, gotFwupdCrit)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(gotSnapshot, &asMap); err != nil {
+		t.Fatalf("snapshot is not valid JSON: %v", err)
+	}
+	if _, ok := asMap["deviceId"]; !ok {
+		t.Errorf("snapshot JSON missing deviceId field")
+	}
+
+	// FindLatestHealth must return the same blob.
+	blob, ts, err := r.FindLatestHealth(ctx, tenantID, deviceID)
+	if err != nil {
+		t.Fatalf("FindLatestHealth: %v", err)
+	}
+	if len(blob) == 0 {
+		t.Error("FindLatestHealth returned empty blob")
+	}
+	if ts.IsZero() {
+		t.Error("FindLatestHealth returned zero timestamp")
+	}
+
+	// Denormalized columns on devices.
+	var (
+		lastAt        *time.Time
+		lastScore     *int16
+		devBatteryPct *int32
+		devFwupd      *int32
+	)
+	if err := r.pool.QueryRow(ctx, `
+		SELECT last_health_at, last_health_score, battery_health_pct, fwupd_updates_count
+		  FROM devices WHERE id = $1
+	`, deviceID).Scan(&lastAt, &lastScore, &devBatteryPct, &devFwupd); err != nil {
+		t.Fatalf("read devices summary: %v", err)
+	}
+	if lastAt == nil {
+		t.Error("devices.last_health_at not set")
+	}
+	if lastScore == nil || *lastScore != 1 {
+		t.Errorf("devices.last_health_score: got %v, want 1", lastScore)
+	}
+	if devBatteryPct == nil || *devBatteryPct != 82 {
+		t.Errorf("devices.battery_health_pct: got %v, want 82", devBatteryPct)
+	}
+	if devFwupd == nil || *devFwupd != 4 {
+		t.Errorf("devices.fwupd_updates_count: got %v, want 4", devFwupd)
+	}
+}
+
+func TestIntegrationUpsertHealthSnapshot_TwoSnapshots_LatestWins(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse(defaultTenant)
+	deviceID := seedDeviceForHealth(t, r, tenantID, "twosnap")
+
+	first := HealthSummary{OverallScore: 0}
+	firstJSON := []byte(`{"marker":"first"}`)
+	if err := r.UpsertHealthSnapshot(ctx, tenantID, deviceID, first, firstJSON); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+
+	// Sleep ≥1ms to guarantee a strictly later ts.
+	time.Sleep(5 * time.Millisecond)
+
+	second := HealthSummary{OverallScore: 2}
+	secondJSON := []byte(`{"marker":"second"}`)
+	if err := r.UpsertHealthSnapshot(ctx, tenantID, deviceID, second, secondJSON); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+
+	blob, _, err := r.FindLatestHealth(ctx, tenantID, deviceID)
+	if err != nil {
+		t.Fatalf("FindLatestHealth: %v", err)
+	}
+	var asMap map[string]any
+	if err := json.Unmarshal(blob, &asMap); err != nil {
+		t.Fatalf("latest blob not JSON: %v", err)
+	}
+	if asMap["marker"] != "second" {
+		t.Errorf("latest snapshot marker = %v, want \"second\"", asMap["marker"])
+	}
+
+	// devices.last_health_score should reflect the latest write (2 = RED).
+	var lastScore *int16
+	if err := r.pool.QueryRow(ctx, `SELECT last_health_score FROM devices WHERE id = $1`, deviceID).Scan(&lastScore); err != nil {
+		t.Fatal(err)
+	}
+	if lastScore == nil || *lastScore != 2 {
+		t.Errorf("devices.last_health_score after two upserts: got %v, want 2", lastScore)
+	}
+}
+
+func TestIntegrationFindLatestHealth_NoData_ReturnsSentinel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	tenantID := uuid.MustParse(defaultTenant)
+	deviceID := seedDeviceForHealth(t, r, tenantID, "nodata")
+
+	_, _, err := r.FindLatestHealth(context.Background(), tenantID, deviceID)
+	if !errors.Is(err, ErrNoHealthSnapshot) {
+		t.Fatalf("FindLatestHealth on empty: got %v, want ErrNoHealthSnapshot", err)
 	}
 }
 

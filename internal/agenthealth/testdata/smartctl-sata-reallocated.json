@@ -1,0 +1,22 @@
+{
+  "device": {"name": "/dev/sda", "protocol": "ATA"},
+  "model_name": "Samsung SSD 860 EVO 500GB",
+  "temperature": {"current": 38},
+  "power_on_time": {"hours": 28000},
+  "smart_status": {"passed": true},
+  "ata_smart_attributes": {
+    "table": [
+      {"id": 5, "name": "Reallocated_Sector_Ct", "value": 80, "worst": 80, "thresh": 10, "raw": {"value": 42}, "flags": {"string": "PO--CK"}},
+      {"id": 9, "name": "Power_On_Hours", "value": 90, "worst": 90, "thresh": 0, "raw": {"value": 28000}, "flags": {"string": "-O--CK"}},
+      {"id": 197, "name": "Current_Pending_Sector", "value": 100, "worst": 100, "thresh": 0, "raw": {"value": 0}, "flags": {"string": "-O---K"}},
+      {"id": 198, "name": "Offline_Uncorrectable", "value": 100, "worst": 100, "thresh": 0, "raw": {"value": 0}, "flags": {"string": "----CK"}}
+    ]
+  },
+  "ata_smart_self_test_log": {
+    "standard": {
+      "table": [
+        {"status": {"passed": true}}
+      ]
+    }
+  }
+}

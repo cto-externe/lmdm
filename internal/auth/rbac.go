@@ -21,6 +21,9 @@ const (
 	PermTokensCreate   Permission = "tokens.create"
 	PermUsersRead      Permission = "users.read"
 	PermUsersManage    Permission = "users.manage"
+
+	PermDeploymentsRead   Permission = "deployments.read"
+	PermDeploymentsManage Permission = "deployments.manage"
 )
 
 // rolePerms maps each role to the set of permissions it holds.
@@ -32,17 +35,20 @@ var rolePerms = map[Role]map[Permission]struct{}{
 		PermProfilesRead: {}, PermProfilesCreate: {}, PermProfilesAssign: {},
 		PermTokensRead: {}, PermTokensCreate: {},
 		PermUsersRead: {}, PermUsersManage: {},
+		PermDeploymentsRead: {}, PermDeploymentsManage: {},
 	},
 	RoleOperator: {
 		PermDevicesRead: {}, PermInventoryRead: {}, PermComplianceRead: {},
 		PermUpdatesRead: {}, PermUpdatesApply: {},
 		PermProfilesRead: {}, PermProfilesAssign: {},
 		PermTokensRead: {}, PermTokensCreate: {},
+		PermDeploymentsRead: {}, PermDeploymentsManage: {},
 	},
 	RoleViewer: {
 		PermDevicesRead: {}, PermInventoryRead: {}, PermComplianceRead: {},
-		PermUpdatesRead:  {},
-		PermProfilesRead: {},
+		PermUpdatesRead:     {},
+		PermProfilesRead:    {},
+		PermDeploymentsRead: {},
 	},
 }
 

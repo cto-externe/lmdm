@@ -12,6 +12,7 @@ func TestHasPermission_Admin_FullSet(t *testing.T) {
 		PermProfilesRead, PermProfilesCreate, PermProfilesAssign,
 		PermTokensRead, PermTokensCreate,
 		PermUsersRead, PermUsersManage,
+		PermDeploymentsRead, PermDeploymentsManage,
 	}
 	for _, p := range all {
 		if !HasPermission(RoleAdmin, p) {
@@ -44,5 +45,17 @@ func TestHasPermission_OperatorCannotCreateProfiles(t *testing.T) {
 func TestHasPermission_UnknownRoleDenied(t *testing.T) {
 	if HasPermission(Role("owner"), PermDevicesRead) {
 		t.Error("unknown role should be denied")
+	}
+}
+
+func TestHasPermission_DeploymentsPerOperatorAndViewer(t *testing.T) {
+	if !HasPermission(RoleOperator, PermDeploymentsManage) {
+		t.Error("operator should be able to manage deployments")
+	}
+	if !HasPermission(RoleViewer, PermDeploymentsRead) {
+		t.Error("viewer should be able to read deployments")
+	}
+	if HasPermission(RoleViewer, PermDeploymentsManage) {
+		t.Error("viewer must not manage deployments")
 	}
 }

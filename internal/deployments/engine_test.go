@@ -563,8 +563,8 @@ func TestEngine_Create_ValidationErrors(t *testing.T) {
 	e, _, _, _ := setup(t)
 	// Missing canary.
 	if _, err := e.Create(context.Background(), DeploymentSpec{
-		TenantID:  uuid.New(),
-		ProfileID: uuid.New(),
+		TenantID:        uuid.New(),
+		ProfileID:       uuid.New(),
 		TargetDeviceIDs: []uuid.UUID{uuid.New()},
 	}); err == nil {
 		t.Fatal("expected error for missing canary_device_id")

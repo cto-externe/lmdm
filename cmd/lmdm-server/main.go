@@ -27,6 +27,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
+	"github.com/cto-externe/lmdm/internal/healthingester"
 	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
@@ -121,6 +122,13 @@ func run() error {
 	}
 	defer patchIng.Stop()
 	slog.Info("patch ingester started")
+
+	healthIng := healthingester.New(bus, deviceRepo)
+	if err := healthIng.Start(ctx); err != nil {
+		return fmt.Errorf("health ingester: %w", err)
+	}
+	defer healthIng.Stop()
+	slog.Info("health ingester started")
 
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,

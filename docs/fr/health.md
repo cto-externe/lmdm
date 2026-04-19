@@ -126,7 +126,22 @@ L'agent suppose ces 3 paquets installés (à poser par `install.sh`) :
 
 Si un outil manque au runtime, l'agent log un WARN et skip la catégorie. Le score global est calculé sur ce qui a pu être collecté.
 
-## 6. Dépannage
+## 6. Rétention
+
+Les snapshots sont conservés pendant **90 jours** par défaut. Au-delà, un job
+goroutine côté serveur (tick 24h) supprime automatiquement les rows plus
+anciennes — ~1500 snapshots/an/device en JSONB seraient ingérables sans purge.
+
+Configurer via la variable d'environnement :
+
+```
+LMDM_HEALTH_RETENTION_DAYS=90
+```
+
+À 0 ou non défini, la valeur par défaut s'applique. Pour désactiver complètement
+la purge (déconseillé), passer une valeur très grande (ex: `36500` pour 100 ans).
+
+## 7. Dépannage
 
 **Forcer une collecte immédiate** : redémarrer l'agent. Le runner publie un snapshot tout de suite au démarrage, puis tick toutes les 6h.
 

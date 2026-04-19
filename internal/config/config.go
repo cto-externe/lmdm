@@ -5,7 +5,10 @@
 // For local development, sensible defaults point at the docker-compose stack.
 package config
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // Config holds the runtime configuration for the LMDM server.
 type Config struct {
@@ -28,6 +31,10 @@ type Config struct {
 	// EncKeyPath points at a base64 file holding the 32-byte AES-256 master
 	// key used by internal/auth to seal TOTP secrets at rest.
 	EncKeyPath string
+
+	// HealthRetentionDays is the retention window applied by the health
+	// snapshots pruner. Default 90. Configured via LMDM_HEALTH_RETENTION_DAYS.
+	HealthRetentionDays int
 }
 
 // EnvLookup is the minimal interface required to read an environment variable.
@@ -39,19 +46,20 @@ type EnvLookup func(key string) string
 // defaults for local docker-compose usage.
 func Load(env EnvLookup) (*Config, error) {
 	cfg := &Config{
-		HTTPAddr:          firstNonEmpty(env("LMDM_HTTP_ADDR"), ":8080"),
-		GRPCAddr:          firstNonEmpty(env("LMDM_GRPC_ADDR"), ":50051"),
-		DatabaseURL:       firstNonEmpty(env("LMDM_DATABASE_URL"), "postgres://lmdm:lmdm@localhost:5432/lmdm?sslmode=disable"),
-		NATSURL:           firstNonEmpty(env("LMDM_NATS_URL"), "nats://localhost:4222"),
-		S3Endpoint:        firstNonEmpty(env("LMDM_S3_ENDPOINT"), "http://localhost:3900"),
-		S3Region:          firstNonEmpty(env("LMDM_S3_REGION"), "garage"),
-		S3Bucket:          firstNonEmpty(env("LMDM_S3_BUCKET"), "lmdm-packages"),
-		S3AccessKey:       env("LMDM_S3_ACCESS_KEY"),
-		S3SecretKey:       env("LMDM_S3_SECRET_KEY"),
-		ServerKeyPath:     firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "/var/lib/lmdm/server-signing.key"),
-		EnrollmentCertTTL: parseDurationOrDefault(env("LMDM_ENROLLMENT_CERT_TTL"), 365*24*time.Hour),
-		JWTPrivateKeyPath: firstNonEmpty(env("LMDM_JWT_PRIVATE_KEY_PATH"), "deploy/secrets/jwt-priv.pem"),
-		EncKeyPath:        firstNonEmpty(env("LMDM_ENC_KEY_PATH"), "deploy/secrets/enc-key.b64"),
+		HTTPAddr:            firstNonEmpty(env("LMDM_HTTP_ADDR"), ":8080"),
+		GRPCAddr:            firstNonEmpty(env("LMDM_GRPC_ADDR"), ":50051"),
+		DatabaseURL:         firstNonEmpty(env("LMDM_DATABASE_URL"), "postgres://lmdm:lmdm@localhost:5432/lmdm?sslmode=disable"),
+		NATSURL:             firstNonEmpty(env("LMDM_NATS_URL"), "nats://localhost:4222"),
+		S3Endpoint:          firstNonEmpty(env("LMDM_S3_ENDPOINT"), "http://localhost:3900"),
+		S3Region:            firstNonEmpty(env("LMDM_S3_REGION"), "garage"),
+		S3Bucket:            firstNonEmpty(env("LMDM_S3_BUCKET"), "lmdm-packages"),
+		S3AccessKey:         env("LMDM_S3_ACCESS_KEY"),
+		S3SecretKey:         env("LMDM_S3_SECRET_KEY"),
+		ServerKeyPath:       firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "/var/lib/lmdm/server-signing.key"),
+		EnrollmentCertTTL:   parseDurationOrDefault(env("LMDM_ENROLLMENT_CERT_TTL"), 365*24*time.Hour),
+		JWTPrivateKeyPath:   firstNonEmpty(env("LMDM_JWT_PRIVATE_KEY_PATH"), "deploy/secrets/jwt-priv.pem"),
+		EncKeyPath:          firstNonEmpty(env("LMDM_ENC_KEY_PATH"), "deploy/secrets/enc-key.b64"),
+		HealthRetentionDays: parseIntOrDefault(env("LMDM_HEALTH_RETENTION_DAYS"), 90),
 	}
 	return cfg, nil
 }
@@ -74,4 +82,15 @@ func parseDurationOrDefault(s string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func parseIntOrDefault(s string, def int) int {
+	if s == "" {
+		return def
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return def
+	}
+	return n
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/grpcservices"
 	"github.com/cto-externe/lmdm/internal/healthingester"
+	"github.com/cto-externe/lmdm/internal/healthretention"
 	"github.com/cto-externe/lmdm/internal/inventoryingester"
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
@@ -129,6 +130,14 @@ func run() error {
 	}
 	defer healthIng.Stop()
 	slog.Info("health ingester started")
+
+	pruner := healthretention.New(pool, time.Duration(cfg.HealthRetentionDays)*24*time.Hour, 24*time.Hour)
+	go func() {
+		if err := pruner.Run(ctx); err != nil {
+			slog.Error("health retention pruner exited", "err", err)
+		}
+	}()
+	slog.Info("health retention pruner started", "retention_days", cfg.HealthRetentionDays)
 
 	store, err := objectstore.New(objectstore.Config{
 		Endpoint:  cfg.S3Endpoint,

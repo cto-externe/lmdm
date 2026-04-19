@@ -1,0 +1,36 @@
+{
+  "Devices": [
+    {
+      "Name": "System Firmware",
+      "DeviceId": "abc123",
+      "Version": "1.0.0",
+      "Vendor": "Lenovo",
+      "Releases": [
+        {
+          "Version": "1.0.1",
+          "Description": "Critical security fix for CVE-2024-XXXX",
+          "Uri": "https://fwupd.org/lvfs/foo.cab",
+          "Urgency": "critical",
+          "Size": 1048576,
+          "Flags": ["needs-reboot"]
+        }
+      ]
+    },
+    {
+      "Name": "TPM",
+      "DeviceId": "def456",
+      "Version": "7.2",
+      "Vendor": "Infineon",
+      "Releases": [
+        {
+          "Version": "7.3",
+          "Description": "TPM firmware update",
+          "Uri": "https://fwupd.org/lvfs/tpm.cab",
+          "Urgency": "medium",
+          "Size": 524288,
+          "Flags": []
+        }
+      ]
+    }
+  ]
+}

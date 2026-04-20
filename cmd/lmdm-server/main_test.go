@@ -486,7 +486,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-e2e", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-HB-E2E",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-e2e-inv", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-INV-E2E",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -736,7 +736,7 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 	}
 
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
-	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0", agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-POL"})
+	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0", agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-POL"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,7 +908,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	// 2. Enroll a device using that token.
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	enrollRes, err := agentenroll.Enroll(ctx, grpcAddr, tokenResp.Data.Token, "0.1.0-api",
-		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-API-TEST"})
+		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-API-TEST"}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -1041,7 +1041,7 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	// Enroll a device.
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	enrollRes, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-patch",
-		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-PATCH-E2E"})
+		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-PATCH-E2E"}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}

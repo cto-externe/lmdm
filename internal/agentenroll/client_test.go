@@ -84,7 +84,7 @@ func TestIntegrationEnrollClientHappyPath(t *testing.T) {
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	res, err := Enroll(ctx, lis.Addr().String(), plaintext, "0.1.0-test", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-CLIENT-TEST",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}

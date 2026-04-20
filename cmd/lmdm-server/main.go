@@ -149,8 +149,20 @@ func run() error {
 			tls.X25519,
 			tls.CurveP256,
 		},
-		VerifyPeerCertificate: revCache.VerifyPeerCertificate,
-		VerifyConnection:      verifyConn,
+		// With ClientAuth=VerifyClientCertIfGiven, unauthenticated clients (e.g.
+		// agents during initial enrollment — they have no cert yet) produce an
+		// empty verifiedChains. revCache.VerifyPeerCertificate strictly rejects
+		// that, which would block legitimate enrollment. Wrap it so empty
+		// chains pass through; revocation is still enforced on authenticated
+		// sessions (and reverified for resumed sessions via VerifyConnection
+		// below).
+		VerifyPeerCertificate: func(raw [][]byte, chains [][]*x509.Certificate) error {
+			if len(chains) == 0 {
+				return nil
+			}
+			return revCache.VerifyPeerCertificate(raw, chains)
+		},
+		VerifyConnection: verifyConn,
 	}
 
 	bus, err := natsbus.Connect(ctx, cfg.NATSURL, tlsConfig)

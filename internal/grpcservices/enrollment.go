@@ -7,11 +7,16 @@ package grpcservices
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -19,6 +24,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/identity"
 	"github.com/cto-externe/lmdm/internal/pqhybrid"
+	"github.com/cto-externe/lmdm/internal/tlspki"
 	"github.com/cto-externe/lmdm/internal/tokens"
 )
 
@@ -32,9 +38,13 @@ type EnrollmentService struct {
 	serverPub  *pqhybrid.SigningPublicKey
 	endpoints  *lmdmv1.ServerEndpoints
 	certTTL    time.Duration
+	ca         *tlspki.CA
 }
 
 // NewEnrollmentService wires the dependencies needed by the Enroll handler.
+// The ca argument may be nil during bootstrap (Task 15 wires it in
+// cmd/lmdm-server/main.go); when nil, the X.509 signing path is skipped and
+// RenewCertificate returns codes.Unavailable.
 func NewEnrollmentService(
 	tokenRepo *tokens.Repository,
 	deviceRepo *devices.Repository,
@@ -42,6 +52,7 @@ func NewEnrollmentService(
 	serverPub *pqhybrid.SigningPublicKey,
 	endpoints *lmdmv1.ServerEndpoints,
 	certTTL time.Duration,
+	ca *tlspki.CA,
 ) *EnrollmentService {
 	return &EnrollmentService{
 		tokens:     tokenRepo,
@@ -50,6 +61,7 @@ func NewEnrollmentService(
 		serverPub:  serverPub,
 		endpoints:  endpoints,
 		certTTL:    certTTL,
+		ca:         ca,
 	}
 }
 
@@ -120,6 +132,44 @@ func (s *EnrollmentService) Enroll(ctx context.Context, req *lmdmv1.EnrollReques
 		return nil, status.Errorf(codes.Internal, "marshal signed cert: %v", err)
 	}
 
+	// X.509 path — sign the CSR if the agent supplied one and the CA is wired.
+	// Defense-in-depth: the SignedAgentCert proto above is still returned
+	// unconditionally so legacy agents keep working during the transition.
+	var x509CertPEM []byte
+	var caCertPEM []byte
+	if s.ca != nil && len(req.GetCsrPem()) > 0 {
+		block, _ := pem.Decode(req.GetCsrPem())
+		if block == nil {
+			return nil, status.Error(codes.InvalidArgument, "csr_pem decode failed")
+		}
+		csr, err := x509.ParseCertificateRequest(block.Bytes)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "csr parse: %v", err)
+		}
+		if err := csr.CheckSignature(); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "csr signature: %v", err)
+		}
+		certPEM, err := s.ca.SignCSR(csr, deviceID.String(), s.certTTL)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "sign csr: %v", err)
+		}
+		x509CertPEM = certPEM
+
+		// Extract serial from the freshly issued cert for the devices row.
+		certBlock, _ := pem.Decode(certPEM)
+		if certBlock != nil {
+			if issued, perr := x509.ParseCertificate(certBlock.Bytes); perr == nil {
+				if err := s.devices.SetCurrentCertSerial(ctx, tok.TenantID, deviceID, issued.SerialNumber.String()); err != nil {
+					// Non-fatal; enrollment already succeeded.
+					slog.Warn("enrollment: SetCurrentCertSerial failed", "err", err, "device_id", deviceID.String())
+				}
+			}
+		}
+
+		// Include the CA cert so the agent can trust the server-side TLS chain.
+		caCertPEM = pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: s.ca.Cert.Raw})
+	}
+
 	resp := &lmdmv1.EnrollResponse{
 		DeviceId:         &lmdmv1.DeviceID{Id: deviceID.String()},
 		AgentCertificate: signedBytes,
@@ -127,14 +177,91 @@ func (s *EnrollmentService) Enroll(ctx context.Context, req *lmdmv1.EnrollReques
 			Ed25519: s.serverPub.Ed25519,
 			MlDsa:   s.serverPub.MLDSA,
 		},
-		TenantId:  &lmdmv1.TenantID{Id: tok.TenantID.String()},
-		GroupIds:  tok.GroupIDs,
-		Endpoints: s.endpoints,
+		TenantId:            &lmdmv1.TenantID{Id: tok.TenantID.String()},
+		GroupIds:            tok.GroupIDs,
+		Endpoints:           s.endpoints,
+		AgentCertificatePem: x509CertPEM,
+		CaCertificatePem:    caCertPEM,
 	}
 	if tok.SiteID != nil {
 		resp.SiteId = &lmdmv1.SiteID{Id: tok.SiteID.String()}
 	}
 	return resp, nil
+}
+
+// RenewCertificate issues a fresh X.509 cert for an already-enrolled agent.
+// The caller must be authenticated via mTLS; the CSR's CN must match the
+// mTLS peer CN to prevent an agent from renewing a cert for a different
+// device UUID.
+func (s *EnrollmentService) RenewCertificate(ctx context.Context, req *lmdmv1.RenewCertificateRequest) (*lmdmv1.RenewCertificateResponse, error) {
+	if s.ca == nil {
+		return nil, status.Error(codes.Unavailable, "pki not configured")
+	}
+	if len(req.GetCsrPem()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "csr_pem required")
+	}
+
+	peerCert, ok := peerFromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "no mtls peer")
+	}
+	authDeviceID := peerCert.Subject.CommonName
+
+	block, _ := pem.Decode(req.GetCsrPem())
+	if block == nil {
+		return nil, status.Error(codes.InvalidArgument, "csr_pem decode failed")
+	}
+	csr, err := x509.ParseCertificateRequest(block.Bytes)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "csr parse: %v", err)
+	}
+	if err := csr.CheckSignature(); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "csr signature: %v", err)
+	}
+	if csr.Subject.CommonName != authDeviceID {
+		return nil, status.Error(codes.PermissionDenied, "csr CN does not match mTLS peer CN")
+	}
+
+	newCert, err := s.ca.SignCSR(csr, authDeviceID, s.certTTL)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "sign csr: %v", err)
+	}
+
+	// Best-effort: update current_cert_serial for the device. We trust the
+	// mTLS-validated CN as the device UUID and look up its tenant.
+	if devID, perr := uuid.Parse(authDeviceID); perr == nil {
+		if tenantID, terr := s.devices.FindTenantForDevice(ctx, devID); terr == nil {
+			if certBlock, _ := pem.Decode(newCert); certBlock != nil {
+				if issued, ierr := x509.ParseCertificate(certBlock.Bytes); ierr == nil {
+					if err := s.devices.SetCurrentCertSerial(ctx, tenantID, devID, issued.SerialNumber.String()); err != nil {
+						slog.Warn("renew: SetCurrentCertSerial failed", "err", err, "device_id", devID.String())
+					}
+				}
+			}
+		}
+	}
+
+	return &lmdmv1.RenewCertificateResponse{
+		NewCertificate: newCert,
+	}, nil
+}
+
+// peerFromContext extracts the leaf certificate from the gRPC mTLS peer
+// attached to ctx. Returns (nil, false) when there is no peer or no
+// verified chain (i.e. the caller was not authenticated with mTLS).
+func peerFromContext(ctx context.Context) (*x509.Certificate, bool) {
+	p, ok := peer.FromContext(ctx)
+	if !ok {
+		return nil, false
+	}
+	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return nil, false
+	}
+	if len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.VerifiedChains[0]) == 0 {
+		return nil, false
+	}
+	return tlsInfo.State.VerifiedChains[0][0], true
 }
 
 func strPtr(s string) *string {

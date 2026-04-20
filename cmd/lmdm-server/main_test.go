@@ -350,7 +350,7 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
-	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), svc)
 
 	errs := srv.Start()
@@ -466,7 +466,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
-	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	ingester := statusingester.New(bus, deviceRepo)
@@ -595,7 +595,7 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 		t.Fatal(err)
 	}
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
-	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	invIng := inventoryingester.New(bus, deviceRepo)
@@ -718,7 +718,7 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 	grpcAddr := freeAddr(t)
 	srv, _ := server.New(httpAddr, grpcAddr, http.NewServeMux())
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}
-	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	compIng := complianceingester.New(bus, pool)
@@ -872,7 +872,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub,
-		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour)
+		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	errs := srv.Start()
@@ -1021,7 +1021,7 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub,
-		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour)
+		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	patchIng := patchingester.New(bus, pool)

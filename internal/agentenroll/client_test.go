@@ -76,7 +76,7 @@ func TestIntegrationEnrollClientHappyPath(t *testing.T) {
 	}
 	gs := grpc.NewServer()
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: "nats://x", GrpcUrl: lis.Addr().String(), ApiUrl: "http://x"}
-	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(gs, svc)
 	go func() { _ = gs.Serve(lis) }()
 	defer gs.Stop()

@@ -94,8 +94,12 @@ func run() error {
 		GrpcUrl: cfg.GRPCAddr,
 		ApiUrl:  "http://" + cfg.HTTPAddr,
 	}
+	// TODO Task 15: load CA from cfg.CACertPath/cfg.CAKeyPath via tlspki.LoadCA
+	// and pass it here so Enroll/RenewCertificate can issue X.509 certs. With
+	// a nil CA the X.509 path is skipped and the legacy SignedAgentCert proto
+	// is returned for defense-in-depth.
 	enrollSvc := grpcservices.NewEnrollmentService(
-		tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, cfg.EnrollmentCertTTL,
+		tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, cfg.EnrollmentCertTTL, nil,
 	)
 
 	ingester := statusingester.New(bus, deviceRepo)

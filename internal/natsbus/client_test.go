@@ -58,7 +58,7 @@ func TestIntegrationConnectAndSetupStreams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := []string{"COMMANDS", "INVENTORY", "HEALTH", "EVENTS", "STATUS"}
+	expected := []string{"COMMANDS", "INVENTORY", "HEALTH", "EVENTS", "STATUS", "BROADCAST"}
 	for _, want := range expected {
 		found := false
 		for _, got := range names {

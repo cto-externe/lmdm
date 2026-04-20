@@ -84,6 +84,7 @@ var streams = []StreamSpec{
 	{"EVENTS", []string{"fleet.agent.*.events"}, 30 * 24 * time.Hour},
 	{"STATUS", []string{"fleet.agent.*.status"}, 1 * time.Hour},
 	{"COMMAND_RESULTS", []string{"fleet.agent.*.command-result"}, 1 * time.Hour},
+	{"BROADCAST", []string{"fleet.broadcast.*"}, 1 * time.Hour},
 }
 
 // EnsureStreams creates or updates the JetStream streams required by LMDM.

@@ -71,7 +71,7 @@ func cmdCreate(args []string) error {
 	}
 	defer pool.Close()
 
-	serverPriv, _, err := serverkey.LoadOrGenerate(cfg.ServerKeyPath)
+	serverPriv, _, err := serverkey.LoadOrGenerate(cfg.ServerSigningKeyPath)
 	if err != nil {
 		return err
 	}
@@ -118,7 +118,7 @@ func cmdAssign(args []string) error {
 	}
 	defer pool.Close()
 
-	serverPriv, _, err := serverkey.LoadOrGenerate(cfg.ServerKeyPath)
+	serverPriv, _, err := serverkey.LoadOrGenerate(cfg.ServerSigningKeyPath)
 	if err != nil {
 		return err
 	}

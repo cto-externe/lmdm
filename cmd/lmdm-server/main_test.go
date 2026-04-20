@@ -210,7 +210,7 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 		}),
 	}))
 
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 	// Build server with EnrollmentService registered.
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +716,7 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, _ := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, _ := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}
 	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
@@ -867,7 +867,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
 	mux.Handle("/api/", api.Router(apiDeps))
 
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1016,7 +1016,7 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	apiDeps, signer := newTestAPIDeps(t, pool, deviceRepo, tokenRepo,
 		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
 	mux.Handle("/api/", api.Router(apiDeps))
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -126,6 +126,7 @@ func main() {
 	fmt.Printf("  LMDM_CA_KEY_PATH=%s\n", caKeyPath)
 	fmt.Printf("  LMDM_SERVER_CERT_PATH=%s\n", filepath.Join(*out, "server.crt"))
 	fmt.Printf("  LMDM_SERVER_KEY_PATH=%s\n", filepath.Join(*out, "server.key"))
+	fmt.Printf("  # LMDM_SERVER_SIGNING_KEY_PATH points at the pqhybrid signing key (auto-generated on first boot)\n")
 	fmt.Printf("  LMDM_JWT_PRIVATE_KEY_PATH=%s\n", filepath.Join(*out, "jwt-priv.pem"))
 	fmt.Printf("  LMDM_ENC_KEY_PATH=%s\n", filepath.Join(*out, "enc-key.b64"))
 }

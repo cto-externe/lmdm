@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"log/slog"
@@ -36,9 +38,11 @@ import (
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/patchingester"
 	"github.com/cto-externe/lmdm/internal/profiles"
+	"github.com/cto-externe/lmdm/internal/revocation"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
 	"github.com/cto-externe/lmdm/internal/statusingester"
+	"github.com/cto-externe/lmdm/internal/tlspki"
 	"github.com/cto-externe/lmdm/internal/tokens"
 	"github.com/cto-externe/lmdm/internal/users"
 )
@@ -80,11 +84,35 @@ func run() error {
 		return fmt.Errorf("nats streams: %w", err)
 	}
 
-	serverPriv, serverPub, err := serverkey.LoadOrGenerate(cfg.ServerKeyPath)
+	serverPriv, serverPub, err := serverkey.LoadOrGenerate(cfg.ServerSigningKeyPath)
 	if err != nil {
 		return fmt.Errorf("server key: %w", err)
 	}
-	slog.Info("server signing key ready", "path", cfg.ServerKeyPath)
+	slog.Info("server signing key ready", "path", cfg.ServerSigningKeyPath)
+
+	// Load CA + server TLS leaf for mTLS transport. Failures are fatal —
+	// operators are expected to run lmdm-keygen before launching the server.
+	ca, err := tlspki.LoadCA(cfg.CACertPath, cfg.CAKeyPath)
+	if err != nil {
+		return fmt.Errorf("load CA: %w", err)
+	}
+	slog.Info("CA loaded", "cert", cfg.CACertPath)
+
+	serverCertPEM, err := os.ReadFile(cfg.ServerCertPath) //nolint:gosec // path is an explicit configuration input
+	if err != nil {
+		return fmt.Errorf("read server cert: %w", err)
+	}
+	serverKeyPEM, err := os.ReadFile(cfg.ServerKeyPath) //nolint:gosec // path is an explicit configuration input
+	if err != nil {
+		return fmt.Errorf("read server key: %w", err)
+	}
+	serverCert, err := tls.X509KeyPair(serverCertPEM, serverKeyPEM)
+	if err != nil {
+		return fmt.Errorf("parse server cert: %w", err)
+	}
+
+	clientCAPool := x509.NewCertPool()
+	clientCAPool.AddCert(ca.Cert)
 
 	tokenRepo := tokens.NewRepository(pool)
 	deviceRepo := devices.NewRepository(pool)
@@ -92,14 +120,10 @@ func run() error {
 	endpoints := &lmdmv1.ServerEndpoints{
 		NatsUrl: cfg.NATSURL,
 		GrpcUrl: cfg.GRPCAddr,
-		ApiUrl:  "http://" + cfg.HTTPAddr,
+		ApiUrl:  "https://" + cfg.HTTPAddr,
 	}
-	// TODO Task 15: load CA from cfg.CACertPath/cfg.CAKeyPath via tlspki.LoadCA
-	// and pass it here so Enroll/RenewCertificate can issue X.509 certs. With
-	// a nil CA the X.509 path is skipped and the legacy SignedAgentCert proto
-	// is returned for defense-in-depth.
 	enrollSvc := grpcservices.NewEnrollmentService(
-		tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, cfg.EnrollmentCertTTL, nil,
+		tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, cfg.EnrollmentCertTTL, ca,
 	)
 
 	ingester := statusingester.New(bus, deviceRepo)
@@ -221,6 +245,70 @@ func run() error {
 	defer cmdResultsIng.Stop()
 	slog.Info("command results ingester started")
 
+	// Revocation cache backing tls.Config.VerifyPeerCertificate. We
+	// bootstrap synchronously from the DB, subscribe to the NATS broadcast
+	// (so revocations from any node propagate in real time), and refresh
+	// the full list every 5 minutes as belt-and-braces against missed
+	// broadcasts (restart, NATS reconnect, etc).
+	revocationRepo := revocation.New(pool)
+	revCache := tlspki.NewRevocationCache()
+	if serials, err := revocationRepo.ListSerials(ctx, tenantID); err != nil {
+		slog.Warn("initial revocation list fetch failed", "err", err)
+	} else {
+		revCache.Replace(serials)
+		slog.Info("revocation cache bootstrapped", "count", len(serials))
+	}
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if ss, err := revocationRepo.ListSerials(ctx, tenantID); err != nil {
+					slog.Warn("revocation refresh failed", "err", err)
+				} else {
+					revCache.Replace(ss)
+				}
+			}
+		}
+	}()
+	if _, err := revocation.Subscribe(ctx, bus.NC(), revCache.Add); err != nil {
+		slog.Warn("revocation broadcast subscribe failed", "err", err)
+	}
+
+	// TLS config serves both HTTP and gRPC. ClientAuth is
+	// VerifyClientCertIfGiven so unauthenticated agents can still hit
+	// EnrollmentService.Enroll (they don't have a cert yet); RPCs that
+	// require a peer cert enforce it at the handler layer via
+	// peer.FromContext. X25519MLKEM768 is preferred for PQ-hybrid key
+	// exchange, with classical curves retained for compatibility.
+	// VerifyConnection re-checks the revocation cache for resumed sessions
+	// (Go's VerifyPeerCertificate is skipped on resumption).
+	verifyConn := func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return nil
+		}
+		if revCache.Has(cs.PeerCertificates[0].SerialNumber.String()) {
+			return tlspki.ErrCertificateRevoked
+		}
+		return nil
+	}
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    clientCAPool,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
+		CurvePreferences: []tls.CurveID{
+			tls.X25519MLKEM768,
+			tls.X25519,
+			tls.CurveP256,
+		},
+		VerifyPeerCertificate: revCache.VerifyPeerCertificate,
+		VerifyConnection:      verifyConn,
+	}
+
 	// REST API — all endpoints under /api/v1/.
 	apiDeps := &api.Deps{
 		Pool:              pool,
@@ -233,6 +321,7 @@ func run() error {
 		Signer:            jwtSigner,
 		Deployments:       deploymentRepo,
 		DeploymentsEngine: deploymentEngine,
+		Revocation:        revocationRepo,
 		LoginRateLimit:    auth.NewRateLimiter(10, 10*time.Minute),
 		MFARateLimit:      auth.NewRateLimiter(60, time.Minute),
 		NATS:              bus.NC(),
@@ -240,7 +329,7 @@ func run() error {
 	}
 	mux.Handle("/api/", api.Router(apiDeps))
 
-	srv, err := server.New(cfg.HTTPAddr, cfg.GRPCAddr, mux)
+	srv, err := server.New(cfg.HTTPAddr, cfg.GRPCAddr, mux, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("server new: %w", err)
 	}

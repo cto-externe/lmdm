@@ -21,8 +21,11 @@ type Config struct {
 	S3Bucket          string
 	S3AccessKey       string
 	S3SecretKey       string
-	ServerKeyPath     string
-	EnrollmentCertTTL time.Duration
+	// ServerSigningKeyPath points at the pqhybrid (Ed25519 + ML-DSA-65)
+	// signing key used by the control plane to sign AgentIdentityCert and
+	// profile bundles. Configured via LMDM_SERVER_SIGNING_KEY_PATH.
+	ServerSigningKeyPath string
+	EnrollmentCertTTL    time.Duration
 
 	// JWTPrivateKeyPath points at a PEM-encoded ECDSA P-256 key loaded at
 	// startup by auth.LoadJWTSigner. Required in production; falls back to
@@ -35,6 +38,16 @@ type Config struct {
 	// HealthRetentionDays is the retention window applied by the health
 	// snapshots pruner. Default 90. Configured via LMDM_HEALTH_RETENTION_DAYS.
 	HealthRetentionDays int
+
+	// CACertPath / CAKeyPath point at the LMDM Root CA material used to
+	// verify agent client certificates and sign enrollment CSRs. The server
+	// fails fast at startup if either file is missing.
+	CACertPath string
+	CAKeyPath  string
+	// ServerCertPath / ServerKeyPath point at the server's TLS leaf cert
+	// (signed by the CA) and its private key, loaded into tls.Config.
+	ServerCertPath string
+	ServerKeyPath  string
 }
 
 // EnvLookup is the minimal interface required to read an environment variable.
@@ -55,11 +68,15 @@ func Load(env EnvLookup) (*Config, error) {
 		S3Bucket:            firstNonEmpty(env("LMDM_S3_BUCKET"), "lmdm-packages"),
 		S3AccessKey:         env("LMDM_S3_ACCESS_KEY"),
 		S3SecretKey:         env("LMDM_S3_SECRET_KEY"),
-		ServerKeyPath:       firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "/var/lib/lmdm/server-signing.key"),
-		EnrollmentCertTTL:   parseDurationOrDefault(env("LMDM_ENROLLMENT_CERT_TTL"), 365*24*time.Hour),
-		JWTPrivateKeyPath:   firstNonEmpty(env("LMDM_JWT_PRIVATE_KEY_PATH"), "deploy/secrets/jwt-priv.pem"),
-		EncKeyPath:          firstNonEmpty(env("LMDM_ENC_KEY_PATH"), "deploy/secrets/enc-key.b64"),
-		HealthRetentionDays: parseIntOrDefault(env("LMDM_HEALTH_RETENTION_DAYS"), 90),
+		ServerSigningKeyPath: firstNonEmpty(env("LMDM_SERVER_SIGNING_KEY_PATH"), "/var/lib/lmdm/server-signing.key"),
+		EnrollmentCertTTL:    parseDurationOrDefault(env("LMDM_ENROLLMENT_CERT_TTL"), 365*24*time.Hour),
+		JWTPrivateKeyPath:    firstNonEmpty(env("LMDM_JWT_PRIVATE_KEY_PATH"), "deploy/secrets/jwt-priv.pem"),
+		EncKeyPath:           firstNonEmpty(env("LMDM_ENC_KEY_PATH"), "deploy/secrets/enc-key.b64"),
+		HealthRetentionDays:  parseIntOrDefault(env("LMDM_HEALTH_RETENTION_DAYS"), 90),
+		CACertPath:           firstNonEmpty(env("LMDM_CA_CERT_PATH"), "deploy/secrets/ca.crt"),
+		CAKeyPath:            firstNonEmpty(env("LMDM_CA_KEY_PATH"), "deploy/secrets/ca.key"),
+		ServerCertPath:       firstNonEmpty(env("LMDM_SERVER_CERT_PATH"), "deploy/secrets/server.crt"),
+		ServerKeyPath:        firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "deploy/secrets/server.key"),
 	}
 	return cfg, nil
 }

@@ -142,7 +142,7 @@ func TestIntegrationAuthRBAC_EndToEnd(t *testing.T) {
 	grpcAddr := freeAddr(t)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.Router(apiDeps))
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

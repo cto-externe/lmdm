@@ -75,15 +75,6 @@ func run() error {
 	}
 	defer pool.Close()
 
-	bus, err := natsbus.Connect(ctx, cfg.NATSURL)
-	if err != nil {
-		return fmt.Errorf("nats connect: %w", err)
-	}
-	defer bus.Close()
-	if err := bus.EnsureStreams(ctx); err != nil {
-		return fmt.Errorf("nats streams: %w", err)
-	}
-
 	serverPriv, serverPub, err := serverkey.LoadOrGenerate(cfg.ServerSigningKeyPath)
 	if err != nil {
 		return fmt.Errorf("server key: %w", err)
@@ -113,6 +104,85 @@ func run() error {
 
 	clientCAPool := x509.NewCertPool()
 	clientCAPool.AddCert(ca.Cert)
+
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+
+	// Revocation cache + tlsConfig must be built before the NATS connection
+	// because the server authenticates to NATS with the same X.509 cert +
+	// tls.Config it uses to serve gRPC/HTTP. Bootstrap from DB here; the NATS
+	// broadcast subscription is wired up after NATS comes up.
+	revocationRepo := revocation.New(pool)
+	revCache := tlspki.NewRevocationCache()
+	if serials, err := revocationRepo.ListSerials(ctx, tenantID); err != nil {
+		slog.Warn("initial revocation list fetch failed", "err", err)
+	} else {
+		revCache.Replace(serials)
+		slog.Info("revocation cache bootstrapped", "count", len(serials))
+	}
+
+	// TLS config serves both HTTP and gRPC, and is also handed to the NATS
+	// client below so the server presents its cert to the broker. ClientAuth
+	// is VerifyClientCertIfGiven so unauthenticated agents can still hit
+	// EnrollmentService.Enroll (they don't have a cert yet); RPCs that
+	// require a peer cert enforce it at the handler layer via
+	// peer.FromContext. X25519MLKEM768 is preferred for PQ-hybrid key
+	// exchange, with classical curves retained for compatibility.
+	// VerifyConnection re-checks the revocation cache for resumed sessions
+	// (Go's VerifyPeerCertificate is skipped on resumption).
+	verifyConn := func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return nil
+		}
+		if revCache.Has(cs.PeerCertificates[0].SerialNumber.String()) {
+			return tlspki.ErrCertificateRevoked
+		}
+		return nil
+	}
+	tlsConfig := &tls.Config{
+		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{serverCert},
+		ClientCAs:    clientCAPool,
+		RootCAs:      clientCAPool,
+		ClientAuth:   tls.VerifyClientCertIfGiven,
+		CurvePreferences: []tls.CurveID{
+			tls.X25519MLKEM768,
+			tls.X25519,
+			tls.CurveP256,
+		},
+		VerifyPeerCertificate: revCache.VerifyPeerCertificate,
+		VerifyConnection:      verifyConn,
+	}
+
+	bus, err := natsbus.Connect(ctx, cfg.NATSURL, tlsConfig)
+	if err != nil {
+		return fmt.Errorf("nats connect: %w", err)
+	}
+	defer bus.Close()
+	if err := bus.EnsureStreams(ctx); err != nil {
+		return fmt.Errorf("nats streams: %w", err)
+	}
+
+	// Subscribe to revocation broadcasts + start periodic full refresh now
+	// that NATS is up.
+	go func() {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if ss, err := revocationRepo.ListSerials(ctx, tenantID); err != nil {
+					slog.Warn("revocation refresh failed", "err", err)
+				} else {
+					revCache.Replace(ss)
+				}
+			}
+		}
+	}()
+	if _, err := revocation.Subscribe(ctx, bus.NC(), revCache.Add); err != nil {
+		slog.Warn("revocation broadcast subscribe failed", "err", err)
+	}
 
 	tokenRepo := tokens.NewRepository(pool)
 	deviceRepo := devices.NewRepository(pool)
@@ -216,7 +286,6 @@ func run() error {
 
 	usersRepo := users.New(pool)
 	auditWriter := audit.NewWriter(pool)
-	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
 	authSvc := &auth.Service{
 		Users:    usersRepo,
 		Audit:    auditWriter,
@@ -244,70 +313,6 @@ func run() error {
 	}
 	defer cmdResultsIng.Stop()
 	slog.Info("command results ingester started")
-
-	// Revocation cache backing tls.Config.VerifyPeerCertificate. We
-	// bootstrap synchronously from the DB, subscribe to the NATS broadcast
-	// (so revocations from any node propagate in real time), and refresh
-	// the full list every 5 minutes as belt-and-braces against missed
-	// broadcasts (restart, NATS reconnect, etc).
-	revocationRepo := revocation.New(pool)
-	revCache := tlspki.NewRevocationCache()
-	if serials, err := revocationRepo.ListSerials(ctx, tenantID); err != nil {
-		slog.Warn("initial revocation list fetch failed", "err", err)
-	} else {
-		revCache.Replace(serials)
-		slog.Info("revocation cache bootstrapped", "count", len(serials))
-	}
-	go func() {
-		t := time.NewTicker(5 * time.Minute)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				if ss, err := revocationRepo.ListSerials(ctx, tenantID); err != nil {
-					slog.Warn("revocation refresh failed", "err", err)
-				} else {
-					revCache.Replace(ss)
-				}
-			}
-		}
-	}()
-	if _, err := revocation.Subscribe(ctx, bus.NC(), revCache.Add); err != nil {
-		slog.Warn("revocation broadcast subscribe failed", "err", err)
-	}
-
-	// TLS config serves both HTTP and gRPC. ClientAuth is
-	// VerifyClientCertIfGiven so unauthenticated agents can still hit
-	// EnrollmentService.Enroll (they don't have a cert yet); RPCs that
-	// require a peer cert enforce it at the handler layer via
-	// peer.FromContext. X25519MLKEM768 is preferred for PQ-hybrid key
-	// exchange, with classical curves retained for compatibility.
-	// VerifyConnection re-checks the revocation cache for resumed sessions
-	// (Go's VerifyPeerCertificate is skipped on resumption).
-	verifyConn := func(cs tls.ConnectionState) error {
-		if len(cs.PeerCertificates) == 0 {
-			return nil
-		}
-		if revCache.Has(cs.PeerCertificates[0].SerialNumber.String()) {
-			return tlspki.ErrCertificateRevoked
-		}
-		return nil
-	}
-	tlsConfig := &tls.Config{
-		MinVersion:   tls.VersionTLS13,
-		Certificates: []tls.Certificate{serverCert},
-		ClientCAs:    clientCAPool,
-		ClientAuth:   tls.VerifyClientCertIfGiven,
-		CurvePreferences: []tls.CurveID{
-			tls.X25519MLKEM768,
-			tls.X25519,
-			tls.CurveP256,
-		},
-		VerifyPeerCertificate: revCache.VerifyPeerCertificate,
-		VerifyConnection:      verifyConn,
-	}
 
 	// REST API — all endpoints under /api/v1/.
 	apiDeps := &api.Deps{

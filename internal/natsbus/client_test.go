@@ -44,7 +44,7 @@ func TestIntegrationConnectAndSetupStreams(t *testing.T) {
 	}
 	url := "nats://" + host + ":" + port.Port()
 
-	bus, err := Connect(ctx, url)
+	bus, err := Connect(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

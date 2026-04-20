@@ -8,6 +8,7 @@ package natsbus
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -25,8 +26,10 @@ type Bus struct {
 
 // Connect establishes a NATS connection tuned for LMDM operations:
 // infinite reconnect with exponential backoff + jitter, large buffer during
-// outages, and ping-based liveness detection.
-func Connect(_ context.Context, url string) (*Bus, error) {
+// outages, and ping-based liveness detection. When tlsConfig is non-nil the
+// connection uses TLS with client auth; when nil the connection is plaintext
+// (used by tests that spin up a bare NATS container without TLS).
+func Connect(_ context.Context, url string, tlsConfig *tls.Config) (*Bus, error) {
 	opts := []nats.Option{
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2 * time.Second),
@@ -39,6 +42,9 @@ func Connect(_ context.Context, url string) (*Bus, error) {
 		nats.PingInterval(30 * time.Second),
 		nats.MaxPingsOutstanding(3),
 		nats.RetryOnFailedConnect(true),
+	}
+	if tlsConfig != nil {
+		opts = append(opts, nats.Secure(tlsConfig))
 	}
 	nc, err := nats.Connect(url, opts...)
 	if err != nil {

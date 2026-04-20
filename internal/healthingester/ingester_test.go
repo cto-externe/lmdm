@@ -113,7 +113,7 @@ func TestIntegrationHealthIngester_PersistsSnapshot(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

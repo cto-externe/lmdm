@@ -187,7 +187,7 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 	}
 	defer pool.Close()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +430,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 		t.Fatalf("Enroll: %v", err)
 	}
 
-	agentBus, err := agentbus.Connect(ctx, natsURL)
+	agentBus, err := agentbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +621,7 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 		t.Fatalf("Enroll: %v", err)
 	}
 
-	agentBus, err := agentbus.Connect(ctx, natsURL)
+	agentBus, err := agentbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +696,7 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -840,7 +840,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +985,7 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

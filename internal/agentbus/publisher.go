@@ -8,6 +8,7 @@ package agentbus
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"math"
 	"math/rand/v2"
@@ -27,8 +28,10 @@ type Bus struct {
 // spec §8A.3 (infinite reconnect, exponential backoff with jitter, large
 // reconnect buffer). Honors ctx cancellation: if ctx is done before the
 // initial connect returns, Connect returns ctx.Err() and the background
-// connect result (if any) is closed once it arrives.
-func Connect(ctx context.Context, url string) (*Bus, error) {
+// connect result (if any) is closed once it arrives. When tlsConfig is
+// non-nil the connection uses TLS with client auth (agent presents its
+// X.509 cert); when nil the connection is plaintext (tests).
+func Connect(ctx context.Context, url string, tlsConfig *tls.Config) (*Bus, error) {
 	opts := []nats.Option{
 		nats.MaxReconnects(-1),
 		nats.ReconnectWait(2 * time.Second),
@@ -41,6 +44,9 @@ func Connect(ctx context.Context, url string) (*Bus, error) {
 		nats.PingInterval(30 * time.Second),
 		nats.MaxPingsOutstanding(3),
 		nats.RetryOnFailedConnect(true),
+	}
+	if tlsConfig != nil {
+		opts = append(opts, nats.Secure(tlsConfig))
 	}
 
 	type result struct {

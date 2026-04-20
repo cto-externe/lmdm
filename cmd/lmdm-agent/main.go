@@ -205,12 +205,14 @@ func cmdRun(args []string) error {
 			serverName = host
 		}
 	}
+	// Build TLS config once — reused for both the gRPC renew channel and the
+	// NATS connection below. Both authenticate with the same X.509 cert.
+	tlsConfig, err := agenttls.BuildClientTLSConfig(certPEM, keyPEM, caPEM, serverName)
+	if err != nil {
+		return fmt.Errorf("build tls config: %w", err)
+	}
 	var renewClient *agentenroll.RenewClient
 	if *grpcAddr != "" {
-		tlsConfig, err := agenttls.BuildClientTLSConfig(certPEM, keyPEM, caPEM, serverName)
-		if err != nil {
-			return fmt.Errorf("build tls config: %w", err)
-		}
 		renewClient, err = agentenroll.NewRenewClient(*grpcAddr, tlsConfig)
 		if err != nil {
 			return fmt.Errorf("renew client: %w", err)
@@ -232,11 +234,9 @@ func cmdRun(args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// TODO(mtls): Task 16 upgrades agentbus.Connect to accept a *tls.Config
-	// and dial NATS with mTLS. For now the agent still uses plaintext NATS
-	// so this task's scope is limited to gRPC; the loaded certPEM/keyPEM/caPEM
-	// above will be reused once NATS-TLS lands.
-	bus, err := agentbus.Connect(ctx, *natsURL)
+	// Agent connects to NATS with mTLS, reusing the same client tls.Config
+	// as the gRPC renew channel (shared X.509 cert + CA-pinned server auth).
+	bus, err := agentbus.Connect(ctx, *natsURL, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}

@@ -37,7 +37,7 @@ func TestIntegrationPublishRoundTrip(t *testing.T) {
 	port, _ := c.MappedPort(ctx, "4222/tcp")
 	url := "nats://" + host + ":" + port.Port()
 
-	bus, err := Connect(ctx, url)
+	bus, err := Connect(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestConnectHonorsContextCancel(t *testing.T) {
 	// must return ctx.Err() quickly (not block on reconnect retries).
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := Connect(ctx, "nats://127.0.0.1:1") // unreachable
+	_, err := Connect(ctx, "nats://127.0.0.1:1", nil) // unreachable
 	if err == nil {
 		t.Fatal("Connect must return an error when ctx is cancelled")
 	}

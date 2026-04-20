@@ -140,6 +140,19 @@ Les profils sont poussés en deux temps : d'abord sur un device canary, puis sur
 
 Voir [docs/fr/deployments.md](docs/fr/deployments.md) pour le guide opérationnel complet.
 
+### mTLS transport et PKI X.509
+
+Tous les canaux (gRPC, NATS, REST) sont chiffrés et mutuellement authentifiés via une PKI X.509 :
+
+- CA auto-générée par `lmdm-keygen` (ou externe via `LMDM_CA_*`)
+- Certs agents délivrés à l'enrôlement via CSR — la clé privée ne quitte jamais le poste
+- TLS 1.3 avec échange de clés post-quantique hybride (X25519MLKEM768)
+- Renouvellement automatique 30 jours avant expiration
+- Révocation immédiate via `POST /api/v1/devices/{id}/revoke` + broadcast NATS
+- Défense en profondeur : `SignedAgentCert` proto PQ-hybride (Ed25519 + ML-DSA) en parallèle du X.509
+
+Voir [docs/fr/mtls.md](docs/fr/mtls.md) pour le guide complet.
+
 ### Authentification console et RBAC
 
 LMDM inclut une authentification console avec MFA TOTP obligatoire :

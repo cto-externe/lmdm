@@ -225,7 +225,7 @@ func setupDeploymentE2EStack(t *testing.T, ctx context.Context) (
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		_ = natsC.Terminate(ctx)
 		pool.Close()
@@ -284,7 +284,7 @@ func setupDeploymentE2EStack(t *testing.T, ctx context.Context) (
 	grpcAddr := freeAddr(t)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.Router(apiDeps))
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		cmdResultsIng.Stop()
 		cancelEngine()

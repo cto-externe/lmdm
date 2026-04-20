@@ -187,7 +187,7 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 	}
 	defer pool.Close()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestIntegrationHealthzReportsAllGreen(t *testing.T) {
 		}),
 	}))
 
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,12 +345,12 @@ func TestIntegrationEnrollEndToEnd(t *testing.T) {
 	// Build server with EnrollmentService registered.
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
-	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	svc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), svc)
 
 	errs := srv.Start()
@@ -430,7 +430,7 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,12 +461,12 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
-	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	ingester := statusingester.New(bus, deviceRepo)
@@ -486,12 +486,12 @@ func TestIntegrationHeartbeatLoop(t *testing.T) {
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-e2e", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-HB-E2E",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
 
-	agentBus, err := agentbus.Connect(ctx, natsURL)
+	agentBus, err := agentbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,12 +590,12 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, err := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr, ApiUrl: "http://" + httpAddr}
-	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	invIng := inventoryingester.New(bus, deviceRepo)
@@ -616,12 +616,12 @@ func TestIntegrationInventoryLoop(t *testing.T) {
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-e2e-inv", agentPub, &lmdmv1.HardwareFingerprint{
 		Hostname: "PC-INV-E2E",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
 
-	agentBus, err := agentbus.Connect(ctx, natsURL)
+	agentBus, err := agentbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -696,7 +696,7 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,9 +716,9 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 
 	httpAddr := freeAddr(t)
 	grpcAddr := freeAddr(t)
-	srv, _ := server.New(httpAddr, grpcAddr, http.NewServeMux())
+	srv, _ := server.New(httpAddr, grpcAddr, http.NewServeMux(), nil)
 	endpoints := &lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}
-	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour)
+	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub, endpoints, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	compIng := complianceingester.New(bus, pool)
@@ -736,7 +736,7 @@ func TestIntegrationPolicyFlowPublishesCompliance(t *testing.T) {
 	}
 
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
-	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0", agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-POL"})
+	res, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0", agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-POL"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -840,7 +840,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -867,12 +867,12 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
 	mux.Handle("/api/", api.Router(apiDeps))
 
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub,
-		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour)
+		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	errs := srv.Start()
@@ -908,7 +908,7 @@ func TestIntegrationRESTAPIListDevicesAndTokens(t *testing.T) {
 	// 2. Enroll a device using that token.
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	enrollRes, err := agentenroll.Enroll(ctx, grpcAddr, tokenResp.Data.Token, "0.1.0-api",
-		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-API-TEST"})
+		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-API-TEST"}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}
@@ -985,7 +985,7 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1016,12 +1016,12 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	apiDeps, signer := newTestAPIDeps(t, pool, deviceRepo, tokenRepo,
 		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
 	mux.Handle("/api/", api.Router(apiDeps))
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	enrollSvc := grpcservices.NewEnrollmentService(tokenRepo, deviceRepo, serverPriv, serverPub,
-		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour)
+		&lmdmv1.ServerEndpoints{NatsUrl: natsURL, GrpcUrl: grpcAddr}, time.Hour, nil)
 	lmdmv1.RegisterEnrollmentServiceServer(srv.GRPC(), enrollSvc)
 
 	patchIng := patchingester.New(bus, pool)
@@ -1041,7 +1041,7 @@ func TestIntegrationPatchReportFlowToRESTAPI(t *testing.T) {
 	// Enroll a device.
 	_, agentPub, _ := pqhybrid.GenerateSigningKey(rand.Reader)
 	enrollRes, err := agentenroll.Enroll(ctx, grpcAddr, plaintext, "0.1.0-patch",
-		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-PATCH-E2E"})
+		agentPub, &lmdmv1.HardwareFingerprint{Hostname: "PC-PATCH-E2E"}, nil, nil)
 	if err != nil {
 		t.Fatalf("Enroll: %v", err)
 	}

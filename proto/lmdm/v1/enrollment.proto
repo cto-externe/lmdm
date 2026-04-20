@@ -48,6 +48,11 @@ message EnrollRequest {
 
   // Whether this is a first-boot enrollment (triggers accelerated profile application).
   bool first_boot = 5;
+
+  // PEM-encoded PKCS#10 CertificateRequest. Server verifies the signature,
+  // then signs with the CA and returns the issued X.509 in agent_certificate_pem
+  // on the EnrollResponse.
+  bytes csr_pem = 6;
 }
 
 message HardwareFingerprint {
@@ -99,6 +104,15 @@ message EnrollResponse {
 
   // Whether this agent is designated as site relay.
   bool is_relay = 9;
+
+  // X.509 certificate PEM signed by the LMDM CA. Presented by the agent for
+  // mTLS on subsequent connections. Coexists with agent_certificate
+  // (SignedAgentCert bytes) for defense-in-depth at the app layer.
+  bytes agent_certificate_pem = 10;
+
+  // CA certificate PEM. Installed in the agent's trust store so the agent
+  // can validate the server's TLS cert and the chain of its own certificate.
+  bytes ca_certificate_pem = 11;
 }
 
 message ServerEndpoints {
@@ -114,9 +128,13 @@ message ServerEndpoints {
 message RenewCertificateRequest {
   DeviceID device_id = 1;
   HybridPublicKey new_public_key = 2; // Agent may rotate its keypair
+
+  // New CSR (fresh keypair each renewal — keys don't rotate without new CSR).
+  bytes csr_pem = 3;
 }
 
 message RenewCertificateResponse {
+  // X.509 certificate PEM signed by the LMDM CA.
   bytes new_certificate = 1;
   google.protobuf.Timestamp expires_at = 2;
 }

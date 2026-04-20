@@ -25,11 +25,17 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.NATSURL == "" {
 		t.Error("NATSURL must have a default for local dev")
 	}
-	if cfg.ServerKeyPath == "" {
-		t.Error("ServerKeyPath must have a default")
+	if cfg.ServerSigningKeyPath == "" {
+		t.Error("ServerSigningKeyPath must have a default")
 	}
 	if cfg.EnrollmentCertTTL == 0 {
 		t.Error("EnrollmentCertTTL must have a default")
+	}
+	if cfg.CACertPath == "" || cfg.CAKeyPath == "" {
+		t.Error("CACertPath and CAKeyPath must have defaults")
+	}
+	if cfg.ServerCertPath == "" || cfg.ServerKeyPath == "" {
+		t.Error("ServerCertPath and ServerKeyPath must have defaults")
 	}
 }
 
@@ -59,17 +65,36 @@ func TestLoadOverrides(t *testing.T) {
 
 func TestLoadEnrollmentOverrides(t *testing.T) {
 	env := map[string]string{
-		"LMDM_SERVER_KEY_PATH":     "/tmp/key.bin",
-		"LMDM_ENROLLMENT_CERT_TTL": "168h",
+		"LMDM_SERVER_SIGNING_KEY_PATH": "/tmp/key.bin",
+		"LMDM_ENROLLMENT_CERT_TTL":     "168h",
 	}
 	cfg, err := Load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ServerKeyPath != "/tmp/key.bin" {
-		t.Errorf("ServerKeyPath = %q", cfg.ServerKeyPath)
+	if cfg.ServerSigningKeyPath != "/tmp/key.bin" {
+		t.Errorf("ServerSigningKeyPath = %q", cfg.ServerSigningKeyPath)
 	}
 	if cfg.EnrollmentCertTTL != 7*24*time.Hour {
 		t.Errorf("EnrollmentCertTTL = %v", cfg.EnrollmentCertTTL)
+	}
+}
+
+func TestLoadTLSOverrides(t *testing.T) {
+	env := map[string]string{
+		"LMDM_CA_CERT_PATH":     "/etc/lmdm/ca.crt",
+		"LMDM_CA_KEY_PATH":      "/etc/lmdm/ca.key",
+		"LMDM_SERVER_CERT_PATH": "/etc/lmdm/server.crt",
+		"LMDM_SERVER_KEY_PATH":  "/etc/lmdm/server.key",
+	}
+	cfg, err := Load(func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CACertPath != "/etc/lmdm/ca.crt" || cfg.CAKeyPath != "/etc/lmdm/ca.key" {
+		t.Errorf("CA overrides not applied: %+v", cfg)
+	}
+	if cfg.ServerCertPath != "/etc/lmdm/server.crt" || cfg.ServerKeyPath != "/etc/lmdm/server.key" {
+		t.Errorf("server TLS overrides not applied: %+v", cfg)
 	}
 }

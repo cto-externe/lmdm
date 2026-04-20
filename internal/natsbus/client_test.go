@@ -44,7 +44,7 @@ func TestIntegrationConnectAndSetupStreams(t *testing.T) {
 	}
 	url := "nats://" + host + ":" + port.Port()
 
-	bus, err := Connect(ctx, url)
+	bus, err := Connect(ctx, url, nil)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestIntegrationConnectAndSetupStreams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := []string{"COMMANDS", "INVENTORY", "HEALTH", "EVENTS", "STATUS"}
+	expected := []string{"COMMANDS", "INVENTORY", "HEALTH", "EVENTS", "STATUS", "BROADCAST"}
 	for _, want := range expected {
 		found := false
 		for _, got := range names {

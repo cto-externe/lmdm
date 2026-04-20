@@ -24,6 +24,11 @@ const (
 
 	PermDeploymentsRead   Permission = "deployments.read"
 	PermDeploymentsManage Permission = "deployments.manage"
+
+	// PermDevicesRevoke authorizes revoking a device's agent certificate.
+	// Admin-only: revocation is an irreversible lockout that forces the device
+	// to re-enroll before it can reconnect.
+	PermDevicesRevoke Permission = "devices.revoke"
 )
 
 // rolePerms maps each role to the set of permissions it holds.
@@ -36,6 +41,7 @@ var rolePerms = map[Role]map[Permission]struct{}{
 		PermTokensRead: {}, PermTokensCreate: {},
 		PermUsersRead: {}, PermUsersManage: {},
 		PermDeploymentsRead: {}, PermDeploymentsManage: {},
+		PermDevicesRevoke: {},
 	},
 	RoleOperator: {
 		PermDevicesRead: {}, PermInventoryRead: {}, PermComplianceRead: {},

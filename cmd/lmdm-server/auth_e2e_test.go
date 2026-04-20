@@ -117,7 +117,7 @@ func TestIntegrationAuthRBAC_EndToEnd(t *testing.T) {
 	natsHost, _ := natsC.Host(ctx)
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestIntegrationAuthRBAC_EndToEnd(t *testing.T) {
 	grpcAddr := freeAddr(t)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", api.Router(apiDeps))
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

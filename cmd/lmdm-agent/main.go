@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -36,6 +37,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
 	"github.com/cto-externe/lmdm/internal/agentstate"
+	"github.com/cto-externe/lmdm/internal/agenttls"
 	"github.com/cto-externe/lmdm/internal/distro"
 	"github.com/cto-externe/lmdm/internal/policy"
 )
@@ -68,8 +70,8 @@ func run() error {
 
 func usage() error {
 	fmt.Fprintln(os.Stderr, "usage:")
-	fmt.Fprintln(os.Stderr, "  lmdm-agent enroll --token=<plaintext> --server=<grpcAddr> --data-dir=<path>")
-	fmt.Fprintln(os.Stderr, "  lmdm-agent run    --data-dir=<path> --nats-url=<url>")
+	fmt.Fprintln(os.Stderr, "  lmdm-agent enroll --token=<plaintext> --server=<grpcAddr> --ca-cert=<path> --data-dir=<path>")
+	fmt.Fprintln(os.Stderr, "  lmdm-agent run    --data-dir=<path> --server=<grpcAddr> --nats-url=<url>")
 	return errors.New("invalid command")
 }
 
@@ -77,12 +79,16 @@ func cmdEnroll(args []string) error {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	token := fs.String("token", "", "enrollment token plaintext")
 	server := fs.String("server", "", "gRPC server address (host:port)")
+	caCertPath := fs.String("ca-cert", "", "path to CA cert PEM used to verify the server TLS")
 	dataDir := fs.String("data-dir", defaultDataDir(), "directory to persist agent identity")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *token == "" || *server == "" {
 		return errors.New("--token and --server are required")
+	}
+	if *caCertPath == "" {
+		return errors.New("--ca-cert is required")
 	}
 
 	keyPath := filepath.Join(*dataDir, "agent.key")
@@ -96,12 +102,43 @@ func cmdEnroll(args []string) error {
 	hostname, _ := os.Hostname()
 	hardware := &lmdmv1.HardwareFingerprint{Hostname: hostname}
 
+	// Generate the X.509 keypair + CSR. The CSR's CommonName is the device
+	// hostname (placeholder): the server-side CA ignores the CSR's CN and
+	// re-signs with the freshly-assigned device UUID, so any stable string
+	// works here. The hostname is also added as a DNS SAN for audit.
+	keypair, err := agenttls.GenerateKeypair()
+	if err != nil {
+		return fmt.Errorf("generate tls keypair: %w", err)
+	}
+	csrPEM, err := keypair.BuildCSR(hostname, hostname)
+	if err != nil {
+		return fmt.Errorf("build csr: %w", err)
+	}
+
+	caCertPEM, err := os.ReadFile(*caCertPath) //nolint:gosec // admin-provided path
+	if err != nil {
+		return fmt.Errorf("read ca cert: %w", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	res, err := agentenroll.Enroll(ctx, *server, *token, agentVersion, agentPub, hardware)
+	res, err := agentenroll.Enroll(ctx, *server, *token, agentVersion, agentPub, hardware, csrPEM, caCertPEM)
 	if err != nil {
 		return fmt.Errorf("enroll: %w", err)
+	}
+
+	// Persist X.509 credentials (new mTLS store) + legacy hybrid cert store.
+	tlsStore, err := agenttls.NewStore(filepath.Join(*dataDir, "tls"))
+	if err != nil {
+		return fmt.Errorf("tls store: %w", err)
+	}
+	keyPEM, err := keypair.MarshalPrivateKeyPEM()
+	if err != nil {
+		return fmt.Errorf("marshal tls key: %w", err)
+	}
+	if err := tlsStore.SaveCredentials(res.AgentCertPEM, keyPEM, res.CAPEM); err != nil {
+		return fmt.Errorf("save tls credentials: %w", err)
 	}
 
 	if err := agentcert.Save(idPath, &agentcert.Identity{
@@ -120,6 +157,7 @@ func cmdRun(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", defaultDataDir(), "directory containing agent identity")
 	natsURL := fs.String("nats-url", "", "NATS connection URL")
+	grpcAddr := fs.String("server", "", "gRPC server address (host:port) for certificate renewal")
 	interval := fs.Duration("interval", 60*time.Second, "heartbeat interval")
 	inventoryInterval := fs.Duration("inventory-interval", time.Hour, "inventory reporting interval")
 	complianceInterval := fs.Duration("compliance-interval", time.Hour, "compliance drift check interval")
@@ -143,6 +181,47 @@ func cmdRun(args []string) error {
 		return fmt.Errorf("read device_id from cert: %w", err)
 	}
 
+	// Load X.509 credentials; the agent cannot run without them since the
+	// renewer depends on mTLS against the control plane. Missing files mean
+	// the agent hasn't been enrolled (or was enrolled on a pre-mTLS build).
+	tlsStore, err := agenttls.NewStore(filepath.Join(*dataDir, "tls"))
+	if err != nil {
+		return fmt.Errorf("tls store: %w", err)
+	}
+	if !tlsStore.HasCredentials() {
+		return errors.New("agent not enrolled; run `lmdm-agent enroll` first")
+	}
+	certPEM, keyPEM, caPEM, err := tlsStore.LoadCredentials()
+	if err != nil {
+		return fmt.Errorf("load tls credentials: %w", err)
+	}
+
+	// Build TLS config for the gRPC renew channel. ServerName derives from
+	// the configured gRPC address (strip port); the CA pinned at enrollment
+	// time validates the server leaf.
+	serverName := *grpcAddr
+	if serverName != "" {
+		if host, _, err := net.SplitHostPort(serverName); err == nil {
+			serverName = host
+		}
+	}
+	// Build TLS config once — reused for both the gRPC renew channel and the
+	// NATS connection below. Both authenticate with the same X.509 cert.
+	tlsConfig, err := agenttls.BuildClientTLSConfig(certPEM, keyPEM, caPEM, serverName)
+	if err != nil {
+		return fmt.Errorf("build tls config: %w", err)
+	}
+	var renewClient *agentenroll.RenewClient
+	if *grpcAddr != "" {
+		renewClient, err = agentenroll.NewRenewClient(*grpcAddr, tlsConfig)
+		if err != nil {
+			return fmt.Errorf("renew client: %w", err)
+		}
+		defer func() { _ = renewClient.Close() }()
+	} else {
+		slog.Warn("agent: --server not set, certificate renewal disabled")
+	}
+
 	// Detect OS family for patch management.
 	osFamily := detectOSFamily()
 	var pm distro.PatchManager
@@ -155,11 +234,26 @@ func cmdRun(args []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	bus, err := agentbus.Connect(ctx, *natsURL)
+	// Agent connects to NATS with mTLS, reusing the same client tls.Config
+	// as the gRPC renew channel (shared X.509 cert + CA-pinned server auth).
+	bus, err := agentbus.Connect(ctx, *natsURL, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("nats: %w", err)
 	}
 	defer bus.Close()
+
+	// Start the certificate renewer if a gRPC endpoint is configured. The
+	// renewer ticks daily, checks NotAfter, and refreshes the cert via
+	// RenewCertificate before expiry.
+	if renewClient != nil {
+		hostname, _ := os.Hostname()
+		renewer := agenttls.NewRunner(tlsStore, renewClient, deviceID, hostname)
+		go func() {
+			if err := renewer.Run(ctx); err != nil {
+				slog.Error("agent: renewer exited", "err", err)
+			}
+		}()
+	}
 
 	// Enable JetStream for ack-bearing publishes (deployment watchdog).
 	// Degrade gracefully if JetStream is unavailable (e.g. test setups).

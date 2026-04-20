@@ -76,7 +76,7 @@ func TestIntegrationHealthSnapshotFlowToRESTAPI(t *testing.T) {
 	natsPort, _ := natsC.MappedPort(ctx, "4222/tcp")
 	natsURL := "nats://" + natsHost + ":" + natsPort.Port()
 
-	bus, err := natsbus.Connect(ctx, natsURL)
+	bus, err := natsbus.Connect(ctx, natsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestIntegrationHealthSnapshotFlowToRESTAPI(t *testing.T) {
 	apiDeps, signer := newTestAPIDeps(t, pool, deviceRepo, tokenRepo,
 		profilesRepo.NewRepository(pool, serverPriv), bus.NC(), tenantID)
 	mux.Handle("/api/", api.Router(apiDeps))
-	srv, err := server.New(httpAddr, grpcAddr, mux)
+	srv, err := server.New(httpAddr, grpcAddr, mux, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

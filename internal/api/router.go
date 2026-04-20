@@ -15,6 +15,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/deployments"
 	"github.com/cto-externe/lmdm/internal/devices"
 	"github.com/cto-externe/lmdm/internal/profiles"
+	"github.com/cto-externe/lmdm/internal/revocation"
 	"github.com/cto-externe/lmdm/internal/tokens"
 	"github.com/cto-externe/lmdm/internal/users"
 )
@@ -28,6 +29,7 @@ type Deps struct {
 	Users             *users.Repository
 	Deployments       *deployments.Repository
 	DeploymentsEngine *deployments.Engine
+	Revocation        *revocation.Repository
 	Audit             *audit.Writer
 	Auth              *auth.Service
 	Signer            *auth.JWTSigner
@@ -73,6 +75,8 @@ func Router(d *Deps) http.Handler {
 		authed(auth.RequirePermission(auth.PermUpdatesRead, http.HandlerFunc(d.handleListUpdates))))
 	mux.Handle("POST /api/v1/devices/{id}/updates/apply",
 		authed(auth.RequirePermission(auth.PermUpdatesApply, http.HandlerFunc(d.handleApplyUpdates))))
+	mux.Handle("POST /api/v1/devices/{id}/revoke",
+		authed(auth.RequirePermission(auth.PermDevicesRevoke, http.HandlerFunc(d.handleRevokeDevice))))
 
 	// ----- Profiles -----
 	mux.Handle("GET /api/v1/profiles",

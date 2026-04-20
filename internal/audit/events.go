@@ -36,4 +36,5 @@ const (
 	ActionDeploymentCreated        Action = "deployment.created"
 	ActionDeploymentValidated      Action = "deployment.validated"
 	ActionDeploymentRolledBack     Action = "deployment.rolled_back_by_admin"
+	ActionDeviceCertRevoked        Action = "device.cert_revoked"
 )

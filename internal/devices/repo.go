@@ -253,6 +253,27 @@ func (r *Repository) SetCurrentCertSerial(ctx context.Context, tenantID, deviceI
 	})
 }
 
+// FindCurrentCertSerial returns the currently issued cert serial for the
+// device. Returns ErrNotFound if the device is absent or has no cert yet.
+func (r *Repository) FindCurrentCertSerial(ctx context.Context, tenantID, deviceID uuid.UUID) (string, error) {
+	var serial *string
+	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT current_cert_serial FROM devices WHERE id = $1 AND tenant_id = $2`,
+			deviceID, tenantID).Scan(&serial)
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("devices: find current cert serial: %w", err)
+	}
+	if serial == nil || *serial == "" {
+		return "", ErrNotFound
+	}
+	return *serial, nil
+}
+
 // FindTenantForDevice returns the tenant_id that owns the given device. This
 // is intended for callers (e.g., the health ingester) that receive a device
 // id over the wire without an associated tenant context. It bypasses the

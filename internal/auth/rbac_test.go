@@ -13,6 +13,7 @@ func TestHasPermission_Admin_FullSet(t *testing.T) {
 		PermTokensRead, PermTokensCreate,
 		PermUsersRead, PermUsersManage,
 		PermDeploymentsRead, PermDeploymentsManage,
+		PermDevicesRevoke,
 	}
 	for _, p := range all {
 		if !HasPermission(RoleAdmin, p) {
@@ -45,6 +46,18 @@ func TestHasPermission_OperatorCannotCreateProfiles(t *testing.T) {
 func TestHasPermission_UnknownRoleDenied(t *testing.T) {
 	if HasPermission(Role("owner"), PermDevicesRead) {
 		t.Error("unknown role should be denied")
+	}
+}
+
+func TestHasPermission_DevicesRevoke_AdminOnly(t *testing.T) {
+	if !HasPermission(RoleAdmin, PermDevicesRevoke) {
+		t.Error("admin should be able to revoke devices")
+	}
+	if HasPermission(RoleOperator, PermDevicesRevoke) {
+		t.Error("operator must not revoke devices (admin-only lockout action)")
+	}
+	if HasPermission(RoleViewer, PermDevicesRevoke) {
+		t.Error("viewer must not revoke devices")
 	}
 }
 

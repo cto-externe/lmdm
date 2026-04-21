@@ -18,7 +18,7 @@ func TestParseANSSIProfiles(t *testing.T) {
 	reg := DefaultRegistry()
 	for _, path := range profiles {
 		t.Run(path, func(t *testing.T) {
-			data, err := os.ReadFile(path)
+			data, err := os.ReadFile(path) //nolint:gosec // test-only: reads fixture YAMLs under repo profiles/ dir
 			if err != nil {
 				t.Fatalf("read %s: %v", path, err)
 			}

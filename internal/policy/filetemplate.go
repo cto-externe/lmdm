@@ -23,7 +23,7 @@ type TemplateVars struct {
 	Hostname string
 	DeviceID string
 	TenantID string
-	SiteID   string   // "" if no site
+	SiteID   string // "" if no site
 	GroupIDs []string
 }
 

@@ -1,0 +1,997 @@
+kind: profile
+metadata:
+  name: anssi-renforce
+  version: "1.0"
+  description: "Durcissement ANSSI-BP-028 v2.0 — niveau Renforcé (M + I + R)"
+  locked: false
+
+# Profil autonome couvrant les recommandations de grade M, I et R applicables
+# post-installation sur un système Debian/Ubuntu (sans recompilation noyau).
+# Références : ANSSI-BP-028 v2.0 — 03/10/2022
+#
+# Hors-scope :
+#   R1-R4   — matériel/BIOS/Secure Boot
+#   R15-R27 — options de compilation noyau
+#   R28     — partitionnement (installation uniquement)
+#   R46     — SELinux (AppArmor privilégié sur Debian/Ubuntu)
+
+policies:
+
+  # =========================================================================
+  # GRADE M — identique à anssi-minimal (profil autonome, pas d'includes)
+  # =========================================================================
+
+  # ANSSI R8 — Paramétrer les options de configuration de la mémoire
+  - name: anssi-r8-memory-sysctl
+    actions:
+      - type: sysctl
+        params:
+          kernel.dmesg_restrict: "1"
+          kernel.kptr_restrict: "2"
+          kernel.perf_cpu_time_max_percent: "1"
+          kernel.perf_event_max_sample_rate: "1"
+          kernel.perf_event_paranoid: "2"
+          kernel.randomize_va_space: "2"
+          kernel.sysrq: "0"
+          kernel.unprivileged_bpf_disabled: "1"
+          kernel.panic_on_oops: "1"
+
+  # ANSSI R9 — Paramétrer les options de configuration du noyau
+  - name: anssi-r9-kernel-sysctl
+    actions:
+      - type: sysctl
+        params:
+          kernel.pid_max: "65536"
+          net.core.bpf_jit_harden: "2"
+
+  # ANSSI R11 — Activer et configurer le LSM Yama
+  - name: anssi-r11-yama-ptrace
+    actions:
+      - type: sysctl
+        params:
+          kernel.yama.ptrace_scope: "1"
+
+  # ANSSI R12 — Paramétrer les options de configuration du réseau IPv4
+  - name: anssi-r12-network-ipv4
+    actions:
+      - type: sysctl
+        params:
+          net.ipv4.ip_forward: "0"
+          net.ipv4.conf.all.accept_local: "0"
+          net.ipv4.conf.all.accept_redirects: "0"
+          net.ipv4.conf.default.accept_redirects: "0"
+          net.ipv4.conf.all.secure_redirects: "0"
+          net.ipv4.conf.default.secure_redirects: "0"
+          net.ipv4.conf.all.shared_media: "0"
+          net.ipv4.conf.default.shared_media: "0"
+          net.ipv4.conf.all.accept_source_route: "0"
+          net.ipv4.conf.default.accept_source_route: "0"
+          net.ipv4.conf.all.arp_filter: "1"
+          net.ipv4.conf.all.arp_ignore: "2"
+          net.ipv4.conf.all.route_localnet: "0"
+          net.ipv4.conf.all.drop_gratuitous_arp: "1"
+          net.ipv4.conf.default.rp_filter: "1"
+          net.ipv4.conf.all.rp_filter: "1"
+          net.ipv4.conf.default.send_redirects: "0"
+          net.ipv4.conf.all.send_redirects: "0"
+          net.ipv4.icmp_ignore_bogus_error_responses: "1"
+          net.ipv4.ip_local_port_range: "32768 65535"
+          net.ipv4.tcp_rfc1337: "1"
+          net.ipv4.tcp_syncookies: "1"
+
+  # ANSSI R14 — Paramétrer les options de configuration des systèmes de fichiers
+  - name: anssi-r14-filesystem-sysctl
+    actions:
+      - type: sysctl
+        params:
+          fs.suid_dumpable: "0"
+          fs.protected_fifos: "2"
+          fs.protected_regular: "2"
+          fs.protected_symlinks: "1"
+          fs.protected_hardlinks: "1"
+
+  # ANSSI R31 — Utiliser des mots de passe robustes
+  - name: anssi-r31-password-quality
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - libpam-pwquality
+      - type: file_content
+        params:
+          path: /etc/security/pwquality.conf
+          content: |
+            # ANSSI R31 — Politique de mots de passe robustes
+            minlen = 12
+            minclass = 3
+            maxrepeat = 3
+            maxclassrepeat = 0
+            lcredit = 0
+            ucredit = 0
+            dcredit = 0
+            ocredit = 0
+            gecoscheck = 1
+            dictcheck = 1
+
+  # ANSSI R36 — Modifier la valeur par défaut de UMASK
+  - name: anssi-r36-umask
+    actions:
+      - type: file_content
+        params:
+          path: /etc/profile.d/lmdm-anssi-umask.sh
+          content: |
+            # ANSSI R36 — Valeur UMASK restrictive
+            umask 0077
+
+  # ANSSI R38/R39/R42/R44 — sudo hardening
+  - name: anssi-r38-r39-r42-r44-sudo
+    actions:
+      - type: file_content
+        params:
+          path: /etc/sudoers.d/lmdm-anssi
+          content: |
+            # ANSSI R38/R39/R42/R44 — Durcissement sudo
+            Defaults noexec
+            Defaults requiretty
+            Defaults use_pty
+            Defaults umask=0027
+            Defaults ignore_dot
+            Defaults env_reset
+            Defaults !visiblepw
+            Defaults passwd_tries=3
+            Defaults passwd_timeout=1
+
+  # ANSSI R45 — Activer les profils de sécurité AppArmor
+  - name: anssi-r45-apparmor
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - apparmor
+            - apparmor-utils
+            - apparmor-profiles
+            - apparmor-profiles-extra
+      - type: service_ensure
+        params:
+          enabled:
+            - apparmor
+
+  # ANSSI R50 — Restreindre les droits d'accès aux fichiers sensibles
+  - name: anssi-r50-sensitive-files
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r50-check
+          content: |
+            #!/bin/sh
+            # ANSSI R50 — Vérification des droits sur fichiers sensibles
+            chmod 640 /etc/shadow 2>/dev/null || true
+            chmod 640 /etc/gshadow 2>/dev/null || true
+            chmod 644 /etc/passwd 2>/dev/null || true
+            chmod 644 /etc/group 2>/dev/null || true
+            chown root:shadow /etc/shadow 2>/dev/null || true
+            chown root:shadow /etc/gshadow 2>/dev/null || true
+
+  # ANSSI R53/R54 — Filesystem checks
+  - name: anssi-r53-r54-filesystem-checks
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.weekly/lmdm-anssi-r53-r54-check
+          content: |
+            #!/bin/sh
+            # ANSSI R53 — Signalement des fichiers sans propriétaire connu
+            find / -xdev \( -nouser -o -nogroup \) -ls 2>/dev/null | \
+              logger -t lmdm-anssi-r53 -p auth.warning
+            # ANSSI R54 — Sticky bit sur répertoires world-writable
+            find / -xdev -type d -perm -0002 -a ! -perm -1000 \
+              -exec chmod +t {} \; 2>/dev/null
+
+  # ANSSI R56 — Éviter l'usage d'exécutables setuid/setgid
+  - name: anssi-r56-setuid-audit
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.weekly/lmdm-anssi-r56-check
+          content: |
+            #!/bin/sh
+            # ANSSI R56 — Recensement des binaires setuid/setgid
+            find / -xdev -type f -perm /6000 -ls 2>/dev/null | \
+              logger -t lmdm-anssi-r56 -p auth.warning
+
+  # ANSSI R58/R59 — apt hardening
+  - name: anssi-r58-r59-apt-hardening
+    actions:
+      - type: file_content
+        params:
+          path: /etc/apt/apt.conf.d/99-lmdm-anssi
+          content: |
+            # ANSSI R58/R59 — Durcissement APT
+            APT::Get::AllowUnauthenticated "false";
+            Acquire::AllowInsecureRepositories "false";
+            Acquire::AllowDowngradeToInsecureRepositories "false";
+            APT::Periodic::Update-Package-Lists "1";
+            APT::Periodic::Download-Upgradeable-Packages "1";
+            APT::Periodic::AutocleanInterval "7";
+      - type: package_ensure
+        params:
+          absent:
+            - telnet
+            - rsh-client
+            - rsh-server
+            - talk
+            - talkd
+            - xinetd
+
+  # ANSSI R61 — Mises à jour régulières
+  - name: anssi-r61-automatic-updates
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - unattended-upgrades
+      - type: service_ensure
+        params:
+          enabled:
+            - unattended-upgrades
+      - type: file_content
+        params:
+          path: /etc/apt/apt.conf.d/20auto-upgrades
+          content: |
+            # ANSSI R61 — Mises à jour automatiques de sécurité
+            APT::Periodic::Update-Package-Lists "1";
+            APT::Periodic::Unattended-Upgrade "1";
+
+  # ANSSI R62 — Désactiver les services non nécessaires
+  - name: anssi-r62-disable-unused-services
+    actions:
+      - type: service_ensure
+        params:
+          disabled:
+            - avahi-daemon
+            - cups
+            - bluetooth
+            - rpcbind
+
+  # ANSSI R67/R68 — PAM faillock
+  - name: anssi-r67-r68-pam-faillock
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - libpam-faillock
+      - type: file_content
+        params:
+          path: /etc/security/faillock.conf
+          content: |
+            # ANSSI R67/R68 — Verrouillage de compte après échecs d'authentification
+            deny = 5
+            unlock_time = 900
+            fail_interval = 900
+            audit
+            silent
+
+  # ANSSI R71/R72 — Journalisation
+  - name: anssi-r71-r72-logging
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - rsyslog
+      - type: service_ensure
+        params:
+          enabled:
+            - rsyslog
+      - type: file_content
+        params:
+          path: /etc/rsyslog.d/99-lmdm-anssi.conf
+          content: |
+            # ANSSI R71/R72 — Journalisation sécurisée
+            $FileOwner root
+            $FileGroup adm
+            $FileCreateMode 0640
+            $DirCreateMode 0750
+            $Umask 0022
+            auth,authpriv.*  /var/log/auth.log
+            kern.*           /var/log/kern.log
+          post_apply_command: systemctl restart rsyslog
+          post_apply_timeout: 30s
+
+  # ANSSI R74/R75 — Messagerie
+  - name: anssi-r74-r75-mail-aliases
+    actions:
+      - type: file_content
+        params:
+          path: /etc/aliases
+          content: |
+            # ANSSI R75 — Alias de messagerie
+            postmaster: root
+            root: admins@localhost
+            daemon: root
+            nobody: root
+            bin: root
+            sys: root
+          post_apply_command: newaliases
+          post_apply_timeout: 30s
+
+  # ANSSI R80 — Surface d'attaque réseau
+  - name: anssi-r80-network-attack-surface
+    actions:
+      - type: package_ensure
+        params:
+          absent:
+            - nis
+            - rsh-server
+            - telnetd
+            - tftpd
+            - ftpd
+
+  # =========================================================================
+  # GRADE I — Recommandations intermédiaires (reprises intégralement)
+  # =========================================================================
+
+  # ANSSI R7 — Activer l'IOMMU (paramètre ligne de commande noyau)
+  - name: anssi-r7-iommu-grub
+    actions:
+      - type: file_content
+        params:
+          path: /etc/default/grub.d/lmdm-anssi-iommu.cfg
+          content: |
+            # ANSSI R7 — Activation IOMMU (M+I+R)
+            # Ajouter iommu=force à la ligne de commande noyau
+            # Appliquer avec: update-grub
+            GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX iommu=force"
+
+  # ANSSI R10 — Désactiver le chargement des modules noyau (note niveau I)
+  - name: anssi-r10-modules-disabled-note
+    actions:
+      - type: file_content
+        params:
+          path: /etc/modprobe.d/lmdm-anssi-r10-note.conf
+          content: |
+            # ANSSI R10 — Désactivation du chargement de modules noyau
+            # kernel.modules_disabled=1 peut être activé dans /etc/sysctl.d/
+            # après validation que tous les modules nécessaires sont chargés.
+            # Cette option est irréversible sans redémarrage.
+            # En niveau R, les modules superflus sont en blacklist (voir anssi-r10-module-blacklist).
+
+  # ANSSI R13 — Désactiver le plan IPv6 (si non utilisé)
+  - name: anssi-r13-ipv6-disable
+    actions:
+      - type: sysctl
+        params:
+          net.ipv6.conf.all.disable_ipv6: "1"
+          net.ipv6.conf.default.disable_ipv6: "1"
+      - type: file_content
+        params:
+          path: /etc/sysctl.d/99-lmdm-anssi-ipv6.conf
+          content: |
+            # ANSSI R13 — Désactivation IPv6 si non utilisé
+            net.ipv6.conf.all.disable_ipv6 = 1
+            net.ipv6.conf.default.disable_ipv6 = 1
+
+  # ANSSI R29 — Restreindre les accès au dossier /boot
+  - name: anssi-r29-boot-permissions
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r29-boot
+          content: |
+            #!/bin/sh
+            # ANSSI R29 — Droits restrictifs sur /boot
+            chmod 700 /boot 2>/dev/null || true
+            chown root:root /boot 2>/dev/null || true
+
+  # ANSSI R32 — Expirer les sessions utilisateur locales
+  - name: anssi-r32-session-timeout
+    actions:
+      - type: file_content
+        params:
+          path: /etc/profile.d/lmdm-anssi-tmout.sh
+          content: |
+            # ANSSI R32 — Expiration des sessions locales inactives (15 minutes)
+            TMOUT=900
+            readonly TMOUT
+            export TMOUT
+
+  # ANSSI R33 — Assurer l'imputabilité des actions d'administration
+  - name: anssi-r33-admin-accountability
+    actions:
+      - type: file_content
+        params:
+          path: /etc/profile.d/lmdm-anssi-history.sh
+          content: |
+            # ANSSI R33 — Historique shell sécurisé pour imputabilité
+            HISTSIZE=10000
+            HISTFILESIZE=20000
+            HISTTIMEFORMAT="%F %T "
+            export HISTSIZE HISTFILESIZE HISTTIMEFORMAT
+
+  # ANSSI R34/R35 — Vérification des comptes de service
+  - name: anssi-r34-r35-service-accounts
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r34-check
+          content: |
+            #!/bin/sh
+            # ANSSI R34 — Vérification des comptes de service (shell /bin/false ou /usr/sbin/nologin)
+            # Les comptes système ne devraient pas avoir de shell valide
+            awk -F: '$7 !~ /nologin|false/ && $3 < 1000 && $1 !~ /^(root|sync|shutdown|halt)$/ {
+              print "WARNING: service account with login shell: " $1
+            }' /etc/passwd | logger -t lmdm-anssi-r34 -p auth.warning
+
+  # ANSSI R39/R40/R41 — sudo directives avancées niveau I
+  - name: anssi-r39-r40-r41-sudo-advanced
+    actions:
+      - type: file_content
+        params:
+          path: /etc/sudoers.d/lmdm-anssi-advanced
+          content: |
+            # ANSSI R39/R40/R41 — Directives sudo avancées niveau I
+            # Les commandes sudo doivent être explicitement listées
+            # Bannir l'usage de ALL sauf pour les administrateurs dédiés
+            # Référence: man sudoers — sections EXEC, Runas
+            Defaults log_output
+            Defaults!/usr/bin/sudoreplay !log_output
+            Defaults!/sbin/reboot !log_output
+
+  # ANSSI R52 — Restreindre les accès aux sockets et pipes nommées
+  - name: anssi-r52-ipc-restrictions
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r52-check
+          content: |
+            #!/bin/sh
+            # ANSSI R52 — Vérification des sockets et pipes world-accessible
+            find / -xdev \( -type s -o -type p \) -perm -0002 -ls 2>/dev/null | \
+              logger -t lmdm-anssi-r52 -p auth.warning
+
+  # ANSSI R55 — Séparer les répertoires temporaires des utilisateurs
+  - name: anssi-r55-tmp-separation
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - libpam-tmpdir
+      - type: file_content
+        params:
+          path: /etc/tmpfiles.d/lmdm-anssi.conf
+          content: |
+            # ANSSI R55 — Répertoires temporaires par utilisateur
+            # q /tmp 1777 root root -
+            # q /var/tmp 1777 root root -
+
+  # ANSSI R63 — Désactiver les fonctionnalités des services non essentielles
+  - name: anssi-r63-service-features
+    actions:
+      - type: service_ensure
+        params:
+          disabled:
+            - avahi-daemon
+            - cups
+            - bluetooth
+            - rpcbind
+            - nfs-common
+            - autofs
+
+  # ANSSI R69/R70 — Sécuriser les accès aux bases utilisateur distantes (NSS)
+  - name: anssi-r69-r70-nss-security
+    actions:
+      - type: file_content
+        params:
+          path: /etc/nsswitch.conf
+          content: |
+            # ANSSI R69/R70 — NSS : bases locales prioritaires
+            # Les bases distantes (LDAP, etc.) doivent utiliser TLS
+            passwd:   files systemd
+            group:    files systemd
+            shadow:   files
+            gshadow:  files
+            hosts:    files dns
+            networks: files
+            protocols: db files
+            services: db files
+            ethers:   db files
+            rpc:      db files
+
+  # ANSSI R73 — Journaliser l'activité système avec auditd (niveau I)
+  - name: anssi-r73-auditd-base
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - auditd
+            - audispd-plugins
+      - type: service_ensure
+        params:
+          enabled:
+            - auditd
+      - type: file_content
+        params:
+          path: /etc/audit/rules.d/lmdm-anssi.rules
+          content: |
+            # ANSSI R73 — Règles auditd pour journalisation système (niveau I)
+            # Exécution de modules noyau
+            -w /sbin/insmod -p x
+            -w /sbin/modprobe -p x
+            -w /sbin/rmmod -p x
+            -w /bin/kmod -p x
+            # Modifications de /etc/
+            -w /etc/ -p wa
+            # Surveillance montage/démontage
+            -a exit,always -S mount -S umount2
+            # Appels syscalls suspects
+            -a exit,always -S modify_ldt
+            -a exit,always -S get_kernel_syms -S ptrace
+            -a exit,always -S prctl
+            # Chargement/déchargement de modules
+            -a exit,always -F arch=b64 -S init_module -S delete_module -S finit_module
+            # Verrouillage de la configuration auditd
+            -e 2
+          post_apply_command: systemctl restart auditd
+          post_apply_timeout: 30s
+
+  # ANSSI R78 — Cloisonner les services réseau (niveau I)
+  - name: anssi-r78-nftables-base
+    actions:
+      - type: nftables_rules
+        params:
+          name: anssi-base
+          content: |
+            #!/usr/sbin/nft -f
+            # ANSSI R78 — Pare-feu de base (M+I+R)
+            # Politique par défaut : drop sur input/forward, accept sur output
+            table inet filter {
+              chain input {
+                type filter hook input priority 0; policy drop;
+                # Connexions établies et liées
+                ct state established,related accept
+                # Loopback
+                iif "lo" accept
+                # ICMP et ICMPv6 essentiels
+                ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem } accept
+                ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+                # SSH
+                tcp dport 22 ct state new accept
+                # Rejeter explicitement (log implicite via drop policy)
+                counter drop
+              }
+              chain forward {
+                type filter hook forward priority 0; policy drop;
+              }
+              chain output {
+                type filter hook output priority 0; policy accept;
+              }
+            }
+
+  # ANSSI R79 — Durcir et surveiller les services exposés (niveau I)
+  - name: anssi-r79-exposed-services-hardening
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r79-ports
+          content: |
+            #!/bin/sh
+            # ANSSI R79 — Recensement des services réseau en écoute
+            ss -tlnp 2>/dev/null | logger -t lmdm-anssi-r79 -p daemon.info
+
+  # =========================================================================
+  # GRADE R — Recommandations renforcées supplémentaires
+  # =========================================================================
+
+  # ANSSI R8/R9/R11/R12/R14 — Persistance sysctl au démarrage (niveau R)
+  # Inclut kernel.modules_disabled=1 uniquement après chargement complet des modules
+  - name: anssi-sysctl-persist-renforce
+    actions:
+      - type: file_content
+        params:
+          path: /etc/sysctl.d/99-lmdm-anssi.conf
+          content: |
+            # Managed by LMDM — ANSSI-BP-028 v2.0 (M+I+R level)
+            # ANSSI R8 — Configuration mémoire
+            kernel.dmesg_restrict = 1
+            kernel.kptr_restrict = 2
+            kernel.perf_cpu_time_max_percent = 1
+            kernel.perf_event_max_sample_rate = 1
+            kernel.perf_event_paranoid = 2
+            kernel.randomize_va_space = 2
+            kernel.sysrq = 0
+            kernel.unprivileged_bpf_disabled = 1
+            kernel.panic_on_oops = 1
+            # ANSSI R9 — Configuration noyau
+            kernel.pid_max = 65536
+            net.core.bpf_jit_harden = 2
+            # ANSSI R10 — Gel du chargement des modules (R)
+            # ATTENTION: irréversible sans redémarrage — activer après validation
+            # kernel.modules_disabled = 1
+            # ANSSI R11 — LSM Yama
+            kernel.yama.ptrace_scope = 1
+            # ANSSI R12 — Réseau IPv4
+            net.ipv4.ip_forward = 0
+            net.ipv4.conf.all.accept_local = 0
+            net.ipv4.conf.all.accept_redirects = 0
+            net.ipv4.conf.default.accept_redirects = 0
+            net.ipv4.conf.all.secure_redirects = 0
+            net.ipv4.conf.default.secure_redirects = 0
+            net.ipv4.conf.all.shared_media = 0
+            net.ipv4.conf.default.shared_media = 0
+            net.ipv4.conf.all.accept_source_route = 0
+            net.ipv4.conf.default.accept_source_route = 0
+            net.ipv4.conf.all.arp_filter = 1
+            net.ipv4.conf.all.arp_ignore = 2
+            net.ipv4.conf.all.route_localnet = 0
+            net.ipv4.conf.all.drop_gratuitous_arp = 1
+            net.ipv4.conf.default.rp_filter = 1
+            net.ipv4.conf.all.rp_filter = 1
+            net.ipv4.conf.default.send_redirects = 0
+            net.ipv4.conf.all.send_redirects = 0
+            net.ipv4.icmp_ignore_bogus_error_responses = 1
+            net.ipv4.ip_local_port_range = 32768 65535
+            net.ipv4.tcp_rfc1337 = 1
+            net.ipv4.tcp_syncookies = 1
+            # ANSSI R13 — Désactivation IPv6
+            net.ipv6.conf.all.disable_ipv6 = 1
+            net.ipv6.conf.default.disable_ipv6 = 1
+            # ANSSI R14 — Systèmes de fichiers
+            fs.suid_dumpable = 0
+            fs.protected_fifos = 2
+            fs.protected_regular = 2
+            fs.protected_symlinks = 1
+            fs.protected_hardlinks = 1
+          post_apply_command: sysctl -p /etc/sysctl.d/99-lmdm-anssi.conf
+          post_apply_timeout: 30s
+
+  # ANSSI R10 — Blacklist des modules noyau superflus (R)
+  # Modules système de fichiers rarement légitimes
+  - name: anssi-r10-module-blacklist-filesystem
+    actions:
+      - type: kernel_module_blacklist
+        params:
+          name: anssi-fs-modules
+          modules:
+            - cramfs
+            - freevxfs
+            - jffs2
+            - hfs
+            - hfsplus
+            - squashfs
+            - udf
+
+  # ANSSI R10 — Blacklist des modules réseau superflus (R)
+  - name: anssi-r10-module-blacklist-network
+    actions:
+      - type: kernel_module_blacklist
+        params:
+          name: anssi-net-modules
+          modules:
+            - dccp
+            - sctp
+            - rds
+            - tipc
+
+  # ANSSI R10 — Blacklist des modules USB superflus (R)
+  - name: anssi-r10-module-blacklist-usb
+    actions:
+      - type: kernel_module_blacklist
+        params:
+          name: anssi-usb-modules
+          modules:
+            - usb_storage
+            - firewire_core
+
+  # ANSSI R29 — Restreindre les accès au dossier /boot (R — renforcement)
+  - name: anssi-r29-boot-permissions-renforce
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r29-boot
+          content: |
+            #!/bin/sh
+            # ANSSI R29 — Droits restrictifs sur /boot (M+I+R)
+            chmod 700 /boot 2>/dev/null || true
+            chown root:root /boot 2>/dev/null || true
+            # Vérification de l'intégrité de /boot avec AIDE (si disponible)
+            if command -v aide >/dev/null 2>&1; then
+              aide --check 2>/dev/null | logger -t lmdm-anssi-r29 -p auth.warning || true
+            fi
+
+  # ANSSI R36 — UMASK renforcé (R — même valeur que M, confirmé en R)
+  # Couvert par anssi-r36-umask dans la section M
+
+  # ANSSI R37 — Identifier les processus en écoute et les sockets (R — AppArmor enforce)
+  - name: anssi-r37-apparmor-enforce
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r37-apparmor
+          content: |
+            #!/bin/sh
+            # ANSSI R37 — Passer tous les profils AppArmor en mode enforce
+            if command -v aa-enforce >/dev/null 2>&1; then
+              aa-enforce /etc/apparmor.d/* 2>/dev/null || true
+            fi
+            # Journaliser l'état des profils
+            if command -v apparmor_status >/dev/null 2>&1; then
+              apparmor_status 2>/dev/null | logger -t lmdm-anssi-r37 -p daemon.info || true
+            fi
+
+  # ANSSI R38 — Restreindre l'accès aux outils administrateur (R)
+  - name: anssi-r38-sudo-group-renforce
+    actions:
+      - type: file_content
+        params:
+          path: /etc/sudoers.d/lmdm-anssi-renforce
+          content: |
+            # ANSSI R38 — Restriction des droits sudo (M+I+R)
+            # Le groupe sudo doit être restreint aux administrateurs autorisés
+            # Vérifier que /etc/group ne contient pas d'utilisateurs non autorisés
+            # Limiter les wildcards NOPASSWD dans les règles sudoers
+            Defaults log_input
+            Defaults log_output
+            Defaults!/usr/bin/sudoreplay !log_output
+            # Enregistrer l'identité réelle de l'utilisateur
+            Defaults loglinelen=0
+            Defaults syslog=auth
+
+  # ANSSI R41 — Limiter les droits d'exécution sudo (R)
+  - name: anssi-r41-sudo-exec-renforce
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r41-sudo-check
+          content: |
+            #!/bin/sh
+            # ANSSI R41 — Vérification des règles sudo contenant EXEC non restreint
+            grep -r 'NOEXEC\|!exec' /etc/sudoers /etc/sudoers.d/ 2>/dev/null | \
+              logger -t lmdm-anssi-r41 -p auth.info || true
+
+  # ANSSI R45 — AppArmor enforce (R — renforcement)
+  - name: anssi-r45-apparmor-renforce
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - apparmor
+            - apparmor-utils
+            - apparmor-profiles
+            - apparmor-profiles-extra
+      - type: service_ensure
+        params:
+          enabled:
+            - apparmor
+      - type: file_content
+        params:
+          path: /etc/default/apparmor
+          content: |
+            # ANSSI R45 — AppArmor en mode enforce (M+I+R)
+            GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT apparmor=1 security=apparmor"
+
+  # ANSSI R51 — Éviter la divulgation d'informations sensibles dans les fichiers temporaires
+  - name: anssi-r51-sensitive-tempfiles
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r51-check
+          content: |
+            #!/bin/sh
+            # ANSSI R51 — Recherche de fichiers sensibles dans /tmp et /var/tmp
+            find /tmp /var/tmp -maxdepth 2 -type f \( \
+              -name "*.key" -o -name "*.pem" -o -name "*.cert" \
+              -o -name "*password*" -o -name "*secret*" -o -name "*token*" \
+            \) 2>/dev/null | logger -t lmdm-anssi-r51 -p auth.warning
+
+  # ANSSI R57 — Restreindre les binaires setuid root (R)
+  - name: anssi-r57-setuid-root-restrict
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r57-setuid
+          content: |
+            #!/bin/sh
+            # ANSSI R57 — Recensement et restriction des binaires setuid root
+            find / -xdev -type f -perm -4000 -user root -ls 2>/dev/null | \
+              logger -t lmdm-anssi-r57-setuid -p auth.warning
+            find / -xdev -type f -perm -2000 -ls 2>/dev/null | \
+              logger -t lmdm-anssi-r57-setgid -p auth.warning
+
+  # ANSSI R60 — Restreindre les dépôts logiciels (R)
+  - name: anssi-r60-hardened-repos
+    actions:
+      - type: file_content
+        params:
+          path: /etc/apt/apt.conf.d/99-lmdm-anssi-renforce
+          content: |
+            # ANSSI R60 — Durcissement des dépôts (M+I+R)
+            # Forcer la vérification GPG des dépôts
+            APT::Get::AllowUnauthenticated "false";
+            Acquire::AllowInsecureRepositories "false";
+            Acquire::AllowDowngradeToInsecureRepositories "false";
+            # Activer la vérification de la date de validité
+            Acquire::Check-Valid-Until "true";
+            # Refuser l'installation de paquets non signés
+            APT::Authentication::TrustCDROM "false";
+
+  # ANSSI R64 — Restreindre les privilèges des services (R)
+  - name: anssi-r64-service-privileges
+    actions:
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r64-check
+          content: |
+            #!/bin/sh
+            # ANSSI R64 — Vérification des services s'exécutant en root inutilement
+            systemctl list-units --type=service --state=running --no-pager -l 2>/dev/null | \
+              logger -t lmdm-anssi-r64 -p daemon.info || true
+
+  # ANSSI R65 — Isoler les services réseau (R — systemd sandboxing)
+  - name: anssi-r65-service-isolation
+    actions:
+      - type: file_content
+        params:
+          path: /etc/systemd/system/lmdm-anssi-r65-hardening.conf
+          content: |
+            # ANSSI R65 — Directives de durcissement systemd à appliquer aux services réseau
+            # Ajouter ces options dans les fichiers .service via drop-in :
+            # [Service]
+            # NoNewPrivileges=yes
+            # ProtectSystem=strict
+            # ProtectHome=yes
+            # PrivateTmp=yes
+            # PrivateDevices=yes
+            # CapabilityBoundingSet=
+            # RestrictSUIDSGID=yes
+            # SystemCallFilter=@system-service
+          post_apply_command: systemctl daemon-reload
+          post_apply_timeout: 30s
+
+  # ANSSI R71/R72/R73 — Journalisation renforcée (R)
+  - name: anssi-r71-r72-r73-logging-renforce
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - auditd
+            - audispd-plugins
+            - rsyslog
+      - type: service_ensure
+        params:
+          enabled:
+            - auditd
+            - rsyslog
+      - type: file_content
+        params:
+          path: /etc/audit/rules.d/lmdm-anssi-renforce.rules
+          content: |
+            # ANSSI R71/R72/R73 — Règles auditd renforcées (M+I+R)
+            # Exécution de modules noyau
+            -w /sbin/insmod -p x
+            -w /sbin/modprobe -p x
+            -w /sbin/rmmod -p x
+            -w /bin/kmod -p x
+            # Modifications de /etc/
+            -w /etc/ -p wa
+            # Surveillance /boot et /usr
+            -w /boot/ -p wa
+            -w /usr/lib/ -p wa
+            -w /usr/bin/ -p wa
+            -w /usr/sbin/ -p wa
+            # Surveillance montage/démontage
+            -a exit,always -S mount -S umount2
+            # Appels syscalls suspects
+            -a exit,always -S modify_ldt
+            -a exit,always -S get_kernel_syms -S ptrace
+            -a exit,always -S prctl
+            # Chargement/déchargement de modules
+            -a exit,always -F arch=b64 -S init_module -S delete_module -S finit_module
+            # Changements de droits et propriétaires
+            -a exit,always -F arch=b64 -S chmod -S fchmod -S fchmodat
+            -a exit,always -F arch=b64 -S chown -S fchown -S fchownat -S lchown
+            # Connexions réseau
+            -a exit,always -F arch=b64 -S connect -S accept4
+            # Commandes d'administration critiques
+            -w /usr/bin/passwd -p x
+            -w /usr/bin/sudo -p x
+            -w /usr/bin/su -p x
+            # Verrouillage de la configuration auditd
+            -e 2
+          post_apply_command: systemctl restart auditd
+          post_apply_timeout: 30s
+
+  # ANSSI R76 — Contrôle d'intégrité des fichiers système (R — AIDE)
+  - name: anssi-r76-file-integrity
+    actions:
+      - type: package_ensure
+        params:
+          present:
+            - aide
+            - aide-common
+      - type: file_content
+        params:
+          path: /etc/cron.daily/lmdm-anssi-r76-aide
+          content: |
+            #!/bin/sh
+            # ANSSI R76 — Contrôle d'intégrité avec AIDE
+            AIDE_LOG=/var/log/aide/lmdm-aide.log
+            AIDE_DB=/var/lib/aide/aide.db
+            mkdir -p /var/log/aide
+            if [ ! -f "$AIDE_DB" ]; then
+              # Initialisation de la base (première exécution)
+              aide --init 2>&1 | logger -t lmdm-anssi-r76-init -p daemon.info
+              if [ -f /var/lib/aide/aide.db.new ]; then
+                mv /var/lib/aide/aide.db.new "$AIDE_DB"
+              fi
+            else
+              # Vérification quotidienne
+              aide --check 2>&1 | logger -t lmdm-anssi-r76 -p auth.warning
+            fi
+
+  # ANSSI R77 — Sauvegarder et protéger les journaux (R)
+  - name: anssi-r77-log-protection
+    actions:
+      - type: file_content
+        params:
+          path: /etc/logrotate.d/lmdm-anssi-r77
+          content: |
+            # ANSSI R77 — Protection et rotation des journaux (M+I+R)
+            /var/log/auth.log /var/log/kern.log /var/log/syslog {
+              daily
+              rotate 90
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0640 root adm
+              sharedscripts
+              postrotate
+                systemctl kill --signal=HUP rsyslog 2>/dev/null || true
+              endscript
+            }
+            /var/log/audit/audit.log {
+              daily
+              rotate 90
+              compress
+              delaycompress
+              missingok
+              notifempty
+              create 0600 root root
+              postrotate
+                systemctl kill --signal=HUP auditd 2>/dev/null || true
+              endscript
+            }
+
+  # ANSSI R78 — Pare-feu renforcé (R — règles strictes avec logging)
+  - name: anssi-r78-nftables-renforce
+    actions:
+      - type: nftables_rules
+        params:
+          name: anssi-renforce
+          content: |
+            #!/usr/sbin/nft -f
+            # ANSSI R78 — Pare-feu renforcé (M+I+R)
+            # Politique par défaut : drop sur tout, règles explicites
+            table inet filter {
+              chain input {
+                type filter hook input priority 0; policy drop;
+                # Connexions établies et liées
+                ct state established,related accept
+                ct state invalid drop
+                # Loopback
+                iif "lo" accept
+                # ICMP et ICMPv6 essentiels
+                ip protocol icmp icmp type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem } limit rate 10/second accept
+                ip6 nexthdr icmpv6 icmpv6 type { echo-request, echo-reply, destination-unreachable, time-exceeded, parameter-problem, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+                # SSH avec rate limiting
+                tcp dport 22 ct state new limit rate 6/minute accept
+                # Journalisation des rejets
+                log prefix "nft-drop-input: " flags all counter drop
+              }
+              chain forward {
+                type filter hook forward priority 0; policy drop;
+                log prefix "nft-drop-forward: " counter drop
+              }
+              chain output {
+                type filter hook output priority 0; policy accept;
+              }
+            }

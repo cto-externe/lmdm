@@ -124,6 +124,11 @@ func cmdAssign(args []string) error {
 	}
 
 	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000000")
+	if raw := os.Getenv("LMDM_TENANT_ID"); raw != "" {
+		if parsed, err := uuid.Parse(raw); err == nil {
+			tenantID = parsed
+		}
+	}
 	repo := profiles.NewRepository(pool, serverPriv)
 
 	if err := repo.Assign(ctx, tenantID, profileID, "device", deviceID); err != nil {
@@ -147,6 +152,7 @@ func cmdAssign(args []string) error {
 					Ed25519: p.SignatureEd25519,
 					MlDsa:   p.SignatureMLDSA,
 				},
+				TenantId: tenantID.String(),
 			},
 		},
 	}

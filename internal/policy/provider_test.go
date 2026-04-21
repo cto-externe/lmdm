@@ -12,14 +12,12 @@ import (
 	"testing"
 )
 
-// fakeProviderAction is an Action that ALSO implements RollbackProvider and
-// optionally PostRollbackProvider. It records phase-tagged events into callOrder.
+// fakeProviderAction is an Action that ALSO implements RollbackProvider.
+// It records when its Rollback was called.
 type fakeProviderAction struct {
-	name         string
-	callOrder    *[]string
-	rbErr        error
-	postRbErr    error
-	withPostPhase bool // if true, also implement PostRollbackProvider
+	name      string
+	callOrder *[]string
+	rbErr     error
 }
 
 func (f *fakeProviderAction) Validate() error                            { return nil }

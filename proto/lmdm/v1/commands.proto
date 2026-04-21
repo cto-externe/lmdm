@@ -70,6 +70,10 @@ message ApplyProfileCommand {
 
   // Deployment mode.
   bool force = 5; // If true, reapply even if already compliant.
+
+  // Tenant context — propagated so the agent can inject tenant_id into
+  // file_template variables for multi-tenant-aware configs.
+  string tenant_id = 6;
 }
 
 message RemoveProfileCommand {

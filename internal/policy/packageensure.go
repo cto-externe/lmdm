@@ -11,12 +11,30 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// aptRunner is the function signature used to execute apt-get commands.
+// It is swappable in tests to avoid real package manager calls.
+type aptRunner func(ctx context.Context, args []string) error
+
+// defaultAptRunner runs the given apt-get command for real.
+func defaultAptRunner(ctx context.Context, args []string) error {
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec
+	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w", string(out), err)
+	}
+	return nil
+}
 
 // PackageEnsure installs and/or removes Debian packages via apt-get.
 type PackageEnsure struct {
-	Present []string
-	Absent  []string
+	Present          []string
+	Absent           []string
+	PostApplyCommand string
+	PostApplyTimeout time.Duration
+	runApt           aptRunner // nil → defaultAptRunner
 }
 
 // NewPackageEnsure constructs a PackageEnsure from the YAML params map.
@@ -35,6 +53,14 @@ func NewPackageEnsure(params map[string]any) (Action, error) {
 			return nil, fmt.Errorf("package_ensure.absent: %w", err)
 		}
 		pe.Absent = list
+	}
+	if v, ok := params["post_apply_command"].(string); ok {
+		pe.PostApplyCommand = v
+	}
+	if v, ok := params["post_apply_timeout"].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			pe.PostApplyTimeout = d
+		}
 	}
 	return pe, nil
 }
@@ -56,21 +82,22 @@ func (p *PackageEnsure) Snapshot(ctx context.Context, snapDir string) error {
 
 // Apply installs packages in Present and removes packages in Absent via apt-get.
 func (p *PackageEnsure) Apply(ctx context.Context) error {
+	runner := p.runApt
+	if runner == nil {
+		runner = defaultAptRunner
+	}
 	if len(p.Present) > 0 {
-		args := p.installArgs()
-		cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec
-		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("package_ensure install: %s: %w", string(out), err)
+		if err := runner(ctx, p.installArgs()); err != nil {
+			return fmt.Errorf("package_ensure install: %w", err)
 		}
 	}
 	if len(p.Absent) > 0 {
-		args := p.removeArgs()
-		cmd := exec.CommandContext(ctx, args[0], args[1:]...) //nolint:gosec
-		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("package_ensure remove: %s: %w", string(out), err)
+		if err := runner(ctx, p.removeArgs()); err != nil {
+			return fmt.Errorf("package_ensure remove: %w", err)
 		}
+	}
+	if _, err := runPostApply(ctx, p.PostApplyCommand, p.PostApplyTimeout); err != nil {
+		return err
 	}
 	return nil
 }

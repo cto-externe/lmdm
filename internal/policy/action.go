@@ -59,6 +59,9 @@ func DefaultRegistry() *Registry {
 	r.Register("service_ensure", NewServiceEnsure)
 	r.Register("file_content", NewFileContent)
 	r.Register("sysctl", NewSysctl)
+	r.Register("nftables_rules", NewNftablesRules)
+	r.Register("kernel_module_blacklist", NewKernelModuleBlacklist)
+	r.Register("file_template", NewFileTemplate)
 	return r
 }
 

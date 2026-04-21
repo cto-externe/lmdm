@@ -91,6 +91,43 @@ func TestParseProfileInvalidYAML(t *testing.T) {
 	}
 }
 
+func TestParseProfileNewActionTypes(t *testing.T) {
+	yaml := `kind: profile
+metadata:
+  name: test-new-types
+policies:
+  - name: p
+    actions:
+      - type: nftables_rules
+        params:
+          name: base
+          content: "table inet t {}"
+      - type: kernel_module_blacklist
+        params:
+          name: usb
+          modules: ["usb_storage"]
+      - type: file_template
+        params:
+          name: hostname
+          path: /etc/my-host.conf
+          content: "host={{.Hostname}}"
+`
+	_, actions, err := ParseProfile([]byte(yaml), DefaultRegistry())
+	if err != nil {
+		t.Fatalf("ParseProfile: %v", err)
+	}
+	if len(actions) != 3 {
+		t.Fatalf("len(actions) = %d, want 3", len(actions))
+	}
+	got := map[string]int{}
+	for _, a := range actions {
+		got[a.Type]++
+	}
+	if got["nftables_rules"] != 1 || got["kernel_module_blacklist"] != 1 || got["file_template"] != 1 {
+		t.Errorf("types = %+v", got)
+	}
+}
+
 func TestParseProfileUnknownActionType(t *testing.T) {
 	yaml := `kind: profile
 metadata:

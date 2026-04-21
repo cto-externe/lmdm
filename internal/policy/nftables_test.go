@@ -384,3 +384,29 @@ func TestNftablesRules_RejectsEmptyContent(t *testing.T) {
 		t.Error("expected error for empty content")
 	}
 }
+
+// TestNftablesRules_SnapshotFailsOnNonENOENTError verifies that Snapshot returns
+// a non-nil error when nft list ruleset fails for a reason other than binary-not-found.
+// Previously the error was silently swallowed, leaving rollback without a ruleset.
+func TestNftablesRules_SnapshotFailsOnNonENOENTError(t *testing.T) {
+	dir := t.TempDir()
+	withNftablesDir(t, dir)
+
+	runner := errNftRunner{err: errors.New("nft: permission denied")}
+	withNftRunner(t, runner)
+
+	a, err := NewNftablesRules(map[string]any{
+		"name":    "permerr",
+		"content": "table inet filter {}",
+	})
+	if err != nil {
+		t.Fatalf("constructor: %v", err)
+	}
+
+	snapDir := t.TempDir()
+	ctx := context.Background()
+	snapErr := a.Snapshot(ctx, snapDir)
+	if snapErr == nil {
+		t.Fatal("Snapshot must return a non-nil error when nft list ruleset fails with a non-ENOENT error")
+	}
+}

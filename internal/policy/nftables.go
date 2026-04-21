@@ -52,7 +52,14 @@ var defaultNftRunner nftRunner = execNftRunner{}
 type NftablesRules struct {
 	Name    string
 	Content string
-	runner  nftRunner
+}
+
+// getRunner returns the current package-level nft runner.
+// Reading it on each call (rather than capturing at construction time) avoids
+// test-ordering hazards where the package-level var is swapped after the
+// struct is built.
+func (a *NftablesRules) getRunner() nftRunner {
+	return defaultNftRunner
 }
 
 // NewNftablesRules constructs a NftablesRules from the YAML params map.
@@ -74,7 +81,6 @@ func NewNftablesRules(params map[string]any) (Action, error) {
 	return &NftablesRules{
 		Name:    name,
 		Content: content,
-		runner:  defaultNftRunner,
 	}, nil
 }
 
@@ -102,15 +108,15 @@ func (a *NftablesRules) Validate() error {
 //     {snapDir}/files/etc/nftables.d/lmdm-{name}.nft (FileContent convention).
 func (a *NftablesRules) Snapshot(ctx context.Context, snapDir string) error {
 	// --- Step 1: capture in-kernel ruleset via nft list ruleset ---
-	out, err := a.runner.Run(ctx, "list", "ruleset")
+	out, err := a.getRunner().Run(ctx, "list", "ruleset")
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || isExecNotFound(err) {
 			slog.WarnContext(ctx, "nftables_rules: nft not found, skipping ruleset capture",
 				"action_name", a.Name)
 		} else {
-			// nft found but returned an error — log warn, still try file backup
-			slog.WarnContext(ctx, "nftables_rules: nft list ruleset failed, skipping ruleset capture",
-				"action_name", a.Name, "err", err)
+			// nft found but returned a real error — surface it so the caller
+			// knows the snapshot is incomplete and rollback would be degraded.
+			return fmt.Errorf("nftables_rules snapshot: nft list ruleset failed: %w", err)
 		}
 	} else {
 		rulesetPath := filepath.Join(snapDir, "nftables-"+a.Name+".ruleset")
@@ -157,7 +163,7 @@ func (a *NftablesRules) Apply(ctx context.Context) error {
 	if err != nil {
 		absTarget = target
 	}
-	out, dryErr := a.runner.Run(ctx, "-c", "-f", absTarget)
+	out, dryErr := a.getRunner().Run(ctx, "-c", "-f", absTarget)
 	if dryErr != nil {
 		// Rollback: delete the written file.
 		_ = os.Remove(target)
@@ -165,7 +171,7 @@ func (a *NftablesRules) Apply(ctx context.Context) error {
 	}
 
 	// Reload in-kernel ruleset.
-	if out, reloadErr := a.runner.Run(ctx, "-f", "/etc/nftables.conf"); reloadErr != nil {
+	if out, reloadErr := a.getRunner().Run(ctx, "-f", "/etc/nftables.conf"); reloadErr != nil {
 		// Leave the file in place for operator inspection;
 		// the executor will trigger a rollback via RollbackWithProviders.
 		return fmt.Errorf("nftables_rules reload failed: %w; nft output: %s", reloadErr, string(out))
@@ -193,7 +199,7 @@ func (a *NftablesRules) Verify(ctx context.Context) (bool, string, error) {
 	if err != nil {
 		absTarget = a.nftFilePath()
 	}
-	if _, syntaxErr := a.runner.Run(ctx, "-c", "-f", absTarget); syntaxErr != nil {
+	if _, syntaxErr := a.getRunner().Run(ctx, "-c", "-f", absTarget); syntaxErr != nil {
 		return false, "nftables syntax invalid", nil
 	}
 
@@ -227,7 +233,7 @@ func (a *NftablesRules) Rollback(ctx context.Context, snapDir string) error {
 		return nil
 	}
 
-	out, err := a.runner.Run(ctx, "-f", rulesetFile)
+	out, err := a.getRunner().Run(ctx, "-f", rulesetFile)
 	if err != nil {
 		return fmt.Errorf("nftables_rules rollback re-apply ruleset failed: %w; nft output: %s", err, string(out))
 	}

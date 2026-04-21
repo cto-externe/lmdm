@@ -120,26 +120,23 @@ func (k *KernelModuleBlacklist) Validate() error {
 
 // Snapshot saves the current on-disk state of the modprobe conf file.
 // If the file exists it is copied under snapDir/files/etc/modprobe.d/lmdm-{name}.conf.
-// If absent a .absent sentinel file is written instead.
-// The snapshot destination always uses the canonical path etc/modprobe.d/lmdm-{name}.conf
-// (relative to snapDir/files) so that the rollback engine finds it regardless of
-// whether modprobeDir has been overridden for tests.
+// If absent, nothing is written — this matches the FileContent.Snapshot convention.
+// A consequence is that a file created by Apply will remain after rollback; a future
+// RollbackProvider implementation can address precise undo semantics.
 func (k *KernelModuleBlacklist) Snapshot(_ context.Context, snapDir string) error {
 	src := k.confPath()
+	data, err := os.ReadFile(src) //nolint:gosec
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // file didn't exist before Apply — nothing to back up
+		}
+		return fmt.Errorf("kernel_module_blacklist snapshot read %s: %w", src, err)
+	}
 	// Canonical relative path for the snapshot artifact — always under etc/modprobe.d.
 	canonicalRel := filepath.Join("etc", "modprobe.d", "lmdm-"+k.Name+".conf")
 	dest := filepath.Join(snapDir, "files", canonicalRel)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return fmt.Errorf("kernel_module_blacklist snapshot mkdir: %w", err)
-	}
-
-	data, err := os.ReadFile(src) //nolint:gosec
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Write a sentinel indicating there was no file to restore.
-			return os.WriteFile(dest+".absent", []byte{}, 0o600)
-		}
-		return fmt.Errorf("kernel_module_blacklist snapshot read %s: %w", src, err)
 	}
 	return os.WriteFile(dest, data, 0o644) //nolint:gosec // snapshot of a world-readable config file
 }

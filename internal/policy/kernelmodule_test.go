@@ -127,14 +127,42 @@ func TestKernelModuleBlacklist_SnapshotRollback_RoundTrip(t *testing.T) {
 		t.Fatalf("MkdirAll snapDir: %v", err)
 	}
 
-	// Snapshot before Apply: file is absent, sentinel must be written.
+	// Snapshot before Apply: file is absent — no artifact must be written under
+	// snapDir/files/ (writing a .absent sentinel would be restored verbatim by the
+	// central rollback walker, creating a garbage file on the live system).
 	if err := a.Snapshot(ctx, snapDir); err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
 
-	sentinelPath := filepath.Join(snapDir, "files", "etc", "modprobe.d", "lmdm-snap.conf.absent")
-	if _, err := os.Stat(sentinelPath); err != nil {
-		t.Errorf("expected .absent sentinel at %s: %v", sentinelPath, err)
+	filesDir := filepath.Join(snapDir, "files")
+	var artifactCount int
+	_ = filepath.Walk(filesDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // missing root is fine
+		}
+		if !info.IsDir() {
+			artifactCount++
+		}
+		return nil
+	})
+	if artifactCount != 0 {
+		t.Errorf("expected no artifacts under %s when source file absent, got %d", filesDir, artifactCount)
+	}
+
+	// Snapshot after Apply: the conf file must be backed up.
+	if err := a.Apply(ctx); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	snapDir2 := filepath.Join(dir, "snap2")
+	if err := os.MkdirAll(snapDir2, 0o750); err != nil {
+		t.Fatalf("MkdirAll snapDir2: %v", err)
+	}
+	if err := a.Snapshot(ctx, snapDir2); err != nil {
+		t.Fatalf("Snapshot after Apply: %v", err)
+	}
+	backupPath := filepath.Join(snapDir2, "files", "etc", "modprobe.d", "lmdm-snap.conf")
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Errorf("expected backup at %s after Apply: %v", backupPath, err)
 	}
 }
 

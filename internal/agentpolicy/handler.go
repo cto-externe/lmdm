@@ -174,6 +174,12 @@ func (h *Handler) handleApplyProfile(ctx context.Context, data []byte, env *lmdm
 		return
 	}
 
+	// Inject device variables into file_template actions before Apply.
+	// SiteID/GroupIDs stay empty for MVP (agent doesn't yet track those).
+	// TODO: pass tenant_id once ApplyProfileCommand proto carries it.
+	tenantID := ""
+	InjectTemplateVars(actions, h.deviceID, tenantID)
+
 	snapDir := filepath.Join(h.snapRoot, deploymentID)
 
 	// 1. Persist pending BEFORE Apply (watchdog marker).

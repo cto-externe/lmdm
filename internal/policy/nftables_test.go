@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,6 +68,13 @@ func withNftablesDir(t *testing.T, dir string) {
 	orig := nftablesDir
 	nftablesDir = dir
 	t.Cleanup(func() { nftablesDir = orig })
+}
+
+func withNftablesMainConf(t *testing.T, path string) {
+	t.Helper()
+	orig := nftablesMainConf
+	nftablesMainConf = path
+	t.Cleanup(func() { nftablesMainConf = orig })
 }
 
 // TestNftablesRules_ApplyHappyPath verifies that Apply:
@@ -408,5 +416,125 @@ func TestNftablesRules_SnapshotFailsOnNonENOENTError(t *testing.T) {
 	snapErr := a.Snapshot(ctx, snapDir)
 	if snapErr == nil {
 		t.Fatal("Snapshot must return a non-nil error when nft list ruleset fails with a non-ENOENT error")
+	}
+}
+
+// TestNftablesRules_PostRollbackReloadsConfig verifies that PostRollback calls
+// nft -f <nftablesMainConf> when the config file exists.
+func TestNftablesRules_PostRollbackReloadsConfig(t *testing.T) {
+	dir := t.TempDir()
+	withNftablesDir(t, dir)
+
+	// Create a fake main conf file so the stat check passes.
+	fakeConf := filepath.Join(t.TempDir(), "nftables.conf")
+	if err := os.WriteFile(fakeConf, []byte("flush ruleset\n"), 0o644); err != nil { //nolint:gosec
+		t.Fatalf("WriteFile: %v", err)
+	}
+	withNftablesMainConf(t, fakeConf)
+
+	runner := &mockNftRunner{}
+	withNftRunner(t, runner)
+
+	a, err := NewNftablesRules(map[string]any{
+		"name":    "post-rb",
+		"content": "table inet filter {}",
+	})
+	if err != nil {
+		t.Fatalf("constructor: %v", err)
+	}
+
+	prb, ok := a.(PostRollbackProvider)
+	if !ok {
+		t.Fatal("NftablesRules must implement PostRollbackProvider")
+	}
+
+	ctx := context.Background()
+	if err := prb.PostRollback(ctx, t.TempDir()); err != nil {
+		t.Fatalf("PostRollback: %v", err)
+	}
+
+	// Must have called nft -f <fakeConf>.
+	if len(runner.calls) == 0 {
+		t.Fatal("expected nft call in PostRollback")
+	}
+	found := false
+	for _, call := range runner.calls {
+		if len(call) >= 2 && call[0] == "-f" && call[1] == fakeConf {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected '-f %s' call, got: %v", fakeConf, runner.calls)
+	}
+}
+
+// TestNftablesRules_PostRollbackSkipsWhenNftMissing verifies that PostRollback
+// returns nil when the nft binary is not found (exec.ErrNotFound).
+func TestNftablesRules_PostRollbackSkipsWhenNftMissing(t *testing.T) {
+	dir := t.TempDir()
+	withNftablesDir(t, dir)
+
+	fakeConf := filepath.Join(t.TempDir(), "nftables.conf")
+	if err := os.WriteFile(fakeConf, []byte("flush ruleset\n"), 0o644); err != nil { //nolint:gosec
+		t.Fatalf("WriteFile: %v", err)
+	}
+	withNftablesMainConf(t, fakeConf)
+
+	// Simulate exec.ErrNotFound using the same exec.Error wrapper that
+	// exec.Command returns when the binary is not in PATH.
+	notFoundErr := &exec.Error{Name: "nft", Err: exec.ErrNotFound}
+	withNftRunner(t, errNftRunner{err: notFoundErr})
+
+	a, err := NewNftablesRules(map[string]any{
+		"name":    "nomissing",
+		"content": "table inet filter {}",
+	})
+	if err != nil {
+		t.Fatalf("constructor: %v", err)
+	}
+
+	prb, ok := a.(PostRollbackProvider)
+	if !ok {
+		t.Fatal("NftablesRules must implement PostRollbackProvider")
+	}
+
+	ctx := context.Background()
+	if err := prb.PostRollback(ctx, t.TempDir()); err != nil {
+		t.Fatalf("PostRollback must return nil when nft is missing, got: %v", err)
+	}
+}
+
+// TestNftablesRules_PostRollbackSkipsWhenConfMissing verifies that PostRollback
+// returns nil without calling the runner when nftablesMainConf does not exist.
+func TestNftablesRules_PostRollbackSkipsWhenConfMissing(t *testing.T) {
+	dir := t.TempDir()
+	withNftablesDir(t, dir)
+
+	// Point to a path that does not exist.
+	withNftablesMainConf(t, filepath.Join(t.TempDir(), "nonexistent.conf"))
+
+	runner := &mockNftRunner{}
+	withNftRunner(t, runner)
+
+	a, err := NewNftablesRules(map[string]any{
+		"name":    "noconf",
+		"content": "table inet filter {}",
+	})
+	if err != nil {
+		t.Fatalf("constructor: %v", err)
+	}
+
+	prb, ok := a.(PostRollbackProvider)
+	if !ok {
+		t.Fatal("NftablesRules must implement PostRollbackProvider")
+	}
+
+	ctx := context.Background()
+	if err := prb.PostRollback(ctx, t.TempDir()); err != nil {
+		t.Fatalf("PostRollback must return nil when conf is missing, got: %v", err)
+	}
+	if len(runner.calls) != 0 {
+		t.Errorf("runner must not be called when conf is missing, got calls: %v", runner.calls)
 	}
 }

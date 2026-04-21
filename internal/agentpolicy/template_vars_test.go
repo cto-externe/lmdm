@@ -95,3 +95,25 @@ func TestInjectTemplateVars_EmptyActionsNoPanic(t *testing.T) {
 	InjectTemplateVars([]policy.TypedAction{}, "dev-1", "")
 	InjectTemplateVars(nil, "dev-1", "")
 }
+
+func TestInjectTemplateVars_UsesTenantIDFromCommand(t *testing.T) {
+	a, target := newTestFileTemplateAction(t, "tenant={{.TenantID}} dev={{.DeviceID}}")
+
+	InjectTemplateVars([]policy.TypedAction{{Type: "file_template", Action: a}}, "dev-1", "tenant-42")
+
+	if err := a.(*policy.FileTemplate).Apply(context.Background()); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	data, err := os.ReadFile(target) //nolint:gosec
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "tenant=tenant-42") {
+		t.Errorf("expected tenant=tenant-42 in output, got %q", got)
+	}
+	if !strings.Contains(got, "dev=dev-1") {
+		t.Errorf("expected dev=dev-1 in output, got %q", got)
+	}
+}

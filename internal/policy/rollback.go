@@ -48,15 +48,21 @@ func Rollback(ctx context.Context, snapDir string) error {
 	return nil
 }
 
-// RollbackWithProviders first invokes every Action that implements
-// RollbackProvider, in reverse apply order, then runs the central Rollback
-// for snapshot artifacts (sysctl/files/services/packages).
+// RollbackWithProviders orchestrates a three-phase rollback:
 //
-// Errors from individual providers do NOT short-circuit; we collect and
-// continue, then run the central rollback even if a provider failed.
+//   - Phase 1: pre-central RollbackProvider (reverse apply order) — actions
+//     with their own kernel/runtime state flush it here.
+//   - Phase 2: central Rollback — restores files/sysctl/services/packages from
+//     the snapshot directory.
+//   - Phase 3: PostRollbackProvider (reverse apply order) — actions whose
+//     kernel state is derived from filesystem state re-read the restored files
+//     to bring the kernel back in sync.
+//
+// Errors from individual phases do NOT short-circuit; we collect and continue.
 // Returns a single aggregated error (or nil if all succeeded).
 func RollbackWithProviders(ctx context.Context, snapDir string, actions []Action) error {
 	var errs []string
+	// Phase 1: pre-central RollbackProvider (reverse order).
 	for i := len(actions) - 1; i >= 0; i-- {
 		if rb, ok := actions[i].(RollbackProvider); ok {
 			if err := rb.Rollback(ctx, snapDir); err != nil {
@@ -64,8 +70,17 @@ func RollbackWithProviders(ctx context.Context, snapDir string, actions []Action
 			}
 		}
 	}
+	// Phase 2: central Rollback (files/sysctl/services/packages).
 	if err := Rollback(ctx, snapDir); err != nil {
 		errs = append(errs, err.Error())
+	}
+	// Phase 3: PostRollbackProvider (reverse order).
+	for i := len(actions) - 1; i >= 0; i-- {
+		if prb, ok := actions[i].(PostRollbackProvider); ok {
+			if err := prb.PostRollback(ctx, snapDir); err != nil {
+				errs = append(errs, fmt.Sprintf("post-provider[%d]: %v", i, err))
+			}
+		}
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("rollback with providers: %d errors: %s", len(errs), strings.Join(errs, "; "))

@@ -176,9 +176,7 @@ func (h *Handler) handleApplyProfile(ctx context.Context, data []byte, env *lmdm
 
 	// Inject device variables into file_template actions before Apply.
 	// SiteID/GroupIDs stay empty for MVP (agent doesn't yet track those).
-	// TODO: pass tenant_id once ApplyProfileCommand proto carries it.
-	tenantID := ""
-	InjectTemplateVars(actions, h.deviceID, tenantID)
+	InjectTemplateVars(actions, h.deviceID, parsed.TenantID)
 
 	snapDir := filepath.Join(h.snapRoot, deploymentID)
 
@@ -445,6 +443,7 @@ type ParsedCommand struct {
 	ProfileContent []byte
 	ProfileID      string
 	Version        string
+	TenantID       string
 }
 
 // VerifyAndParseCommand unmarshals the CommandEnvelope, extracts the
@@ -475,5 +474,6 @@ func VerifyAndParseCommand(data []byte, serverPub *pqhybrid.SigningPublicKey) (*
 		ProfileContent: cmd.ProfileContent,
 		ProfileID:      cmd.GetProfileId().GetId(),
 		Version:        cmd.GetVersion(),
+		TenantID:       cmd.GetTenantId(),
 	}, nil
 }

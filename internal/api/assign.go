@@ -57,6 +57,7 @@ func (d *Deps) handleAssignProfile(w http.ResponseWriter, r *http.Request) {
 					Ed25519: p.SignatureEd25519,
 					MlDsa:   p.SignatureMLDSA,
 				},
+				TenantId: d.TenantID.String(),
 			},
 		},
 	}

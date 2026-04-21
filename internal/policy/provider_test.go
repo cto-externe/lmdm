@@ -32,6 +32,34 @@ func (f *fakeProviderAction) Rollback(_ context.Context, _ string) error {
 	return f.rbErr
 }
 
+// fakePostAction implements both RollbackProvider and PostRollbackProvider,
+// tagging each call with a phase prefix ("pre:" / "post:").
+type fakePostAction struct {
+	name      string
+	callOrder *[]string
+}
+
+func (f *fakePostAction) Validate() error                            { return nil }
+func (f *fakePostAction) Snapshot(_ context.Context, _ string) error { return nil }
+func (f *fakePostAction) Apply(_ context.Context) error              { return nil }
+func (f *fakePostAction) Verify(_ context.Context) (bool, string, error) {
+	return true, "", nil
+}
+
+func (f *fakePostAction) Rollback(_ context.Context, _ string) error {
+	*f.callOrder = append(*f.callOrder, "pre:"+f.name)
+	return nil
+}
+
+func (f *fakePostAction) PostRollback(_ context.Context, _ string) error {
+	*f.callOrder = append(*f.callOrder, "post:"+f.name)
+	return nil
+}
+
+// fakeCentralMarker records when the central Rollback runs by using a snapDir
+// file convention (sysctl.json with empty map, so Rollback executes cheaply).
+// We detect it via a sentinel file written in the snapDir before the call.
+
 // fakePlainAction does NOT implement RollbackProvider.
 type fakePlainAction struct{ name string }
 
@@ -89,5 +117,54 @@ func TestRollbackWithProviders_FallsBackToCentralForArtifacts(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(snapDir, "sysctl.json"), []byte(`{}`), 0o600)
 	if err := RollbackWithProviders(context.Background(), snapDir, nil); err != nil {
 		t.Fatalf("expected nil with empty providers + minimal snapDir, got %v", err)
+	}
+}
+
+// TestRollbackWithProviders_RunsPostRollbackAfterCentral verifies the three-phase
+// ordering: pre-provider (Phase 1) → central (Phase 2) → post-provider (Phase 3).
+// We use a file written by central rollbackFiles as the "central ran" marker.
+func TestRollbackWithProviders_RunsPostRollbackAfterCentral(t *testing.T) {
+	dir := t.TempDir()
+	snapDir := filepath.Join(dir, "snap")
+	if err := os.MkdirAll(snapDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up a file restore so the central Rollback does observable work.
+	target := filepath.Join(dir, "sentinel.conf")
+	backupPath := filepath.Join(snapDir, "files", target)
+	if err := os.MkdirAll(filepath.Dir(backupPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backupPath, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var order []string
+
+	// fakePostAction records "pre:X" in Rollback (Phase 1) and "post:X" in PostRollback (Phase 3).
+	a1 := &fakePostAction{name: "A", callOrder: &order}
+	a2 := &fakePostAction{name: "B", callOrder: &order}
+
+	actions := []Action{a1, a2}
+	if err := RollbackWithProviders(context.Background(), snapDir, actions); err != nil {
+		t.Fatalf("RollbackWithProviders: %v", err)
+	}
+
+	// Phase 1 (reverse): B then A.
+	// Phase 2: central (file restore — verified below).
+	// Phase 3 (reverse): post:B then post:A.
+	want := []string{"pre:B", "pre:A", "post:B", "post:A"}
+	if got := strings.Join(order, ","); got != strings.Join(want, ",") {
+		t.Errorf("phase order: got %q, want %q", got, strings.Join(want, ","))
+	}
+
+	// Central rollback must have restored the sentinel file (Phase 2 ran).
+	data, err := os.ReadFile(target) //nolint:gosec
+	if err != nil {
+		t.Fatalf("sentinel file not restored by central Rollback: %v", err)
+	}
+	if string(data) != "original" {
+		t.Errorf("sentinel content: %q, want 'original'", string(data))
 	}
 }

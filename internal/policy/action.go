@@ -77,3 +77,13 @@ func DefaultRegistry() *Registry {
 type RollbackProvider interface {
 	Rollback(ctx context.Context, snapDir string) error
 }
+
+// PostRollbackProvider is an optional interface an Action may implement to
+// run cleanup or reconciliation logic AFTER the central Rollback has
+// restored file/sysctl/service/package state from the snapshot. Use this
+// for actions whose kernel/runtime state is a read-through of filesystem
+// state — once the files are back, a single reload brings kernel and disk
+// back in sync.
+type PostRollbackProvider interface {
+	PostRollback(ctx context.Context, snapDir string) error
+}

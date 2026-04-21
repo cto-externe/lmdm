@@ -459,6 +459,7 @@ func (e *Engine) pushApplyCommand(ctx context.Context, d *Deployment, deviceID u
 					Ed25519: prof.SignatureEd25519,
 					MlDsa:   prof.SignatureMLDSA,
 				},
+				TenantId: d.TenantID.String(),
 			},
 		},
 	}

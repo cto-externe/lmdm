@@ -18,6 +18,10 @@ import (
 // Overridable in tests.
 var nftablesDir = "/etc/nftables.d"
 
+// nftablesMainConf is the main nftables config file loaded by the kernel.
+// Overridable in tests to avoid touching the real system path.
+var nftablesMainConf = "/etc/nftables.conf"
+
 // nftCmd is the nft binary path, overridable in tests.
 var nftCmd = "nft" //nolint:unused // used via defaultNftRunner init
 
@@ -238,6 +242,28 @@ func (a *NftablesRules) Rollback(ctx context.Context, snapDir string) error {
 		return fmt.Errorf("nftables_rules rollback re-apply ruleset failed: %w; nft output: %s", err, string(out))
 	}
 
+	return nil
+}
+
+// PostRollback implements PostRollbackProvider. It re-reads nftablesMainConf
+// into the kernel to bring the in-memory ruleset in sync with any fragment
+// file that the central rollbackFiles phase restored.
+//
+// Best-effort: if nft is not installed or the main config file does not exist,
+// logs and returns nil (non-fatal).
+func (a *NftablesRules) PostRollback(ctx context.Context, _ string) error {
+	if _, err := os.Stat(nftablesMainConf); errors.Is(err, os.ErrNotExist) {
+		slog.Info("nftables: PostRollback skipped — main config missing", "path", nftablesMainConf)
+		return nil
+	}
+	out, err := a.getRunner().Run(ctx, "-f", nftablesMainConf)
+	if err != nil {
+		if isExecNotFound(err) {
+			slog.Info("nftables: PostRollback skipped — nft binary missing")
+			return nil
+		}
+		return fmt.Errorf("nft -f %s: %w (output: %s)", nftablesMainConf, err, string(out))
+	}
 	return nil
 }
 

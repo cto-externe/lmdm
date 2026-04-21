@@ -73,3 +73,44 @@ func TestFileContentApplyAndVerify(t *testing.T) {
 		t.Error("reason should describe the drift")
 	}
 }
+
+func TestFileContent_PostApplyCommand_RunsAfterWrite(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.conf")
+	sentinel := filepath.Join(dir, "post-apply-ran")
+
+	a, err := NewFileContent(map[string]any{
+		"path":               target,
+		"content":            "data\n",
+		"post_apply_command": "touch " + sentinel,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Apply(context.Background()); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if _, err := os.Stat(sentinel); err != nil {
+		t.Errorf("post_apply_command did not run: sentinel file missing: %v", err)
+	}
+}
+
+func TestFileContent_PostApplyCommand_FailureReturnsApplyError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.conf")
+
+	a, err := NewFileContent(map[string]any{
+		"path":               target,
+		"content":            "data\n",
+		"post_apply_command": "sh -c 'exit 1'",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Apply(context.Background()); err == nil {
+		t.Error("Apply must return non-nil error when post_apply_command fails")
+	}
+}

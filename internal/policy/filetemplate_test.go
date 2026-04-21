@@ -177,3 +177,22 @@ func TestFileTemplate_RejectsRelativePath(t *testing.T) {
 		t.Fatal("NewFileTemplate must reject relative paths")
 	}
 }
+
+func TestFileTemplate_BadOwner_CleansTempfile(t *testing.T) {
+	ft, target := newTestFileTemplate(t, "hello", map[string]any{
+		"owner": "definitely-not-a-user-xyz",
+	})
+	ft.SetVars(TemplateVars{})
+
+	err := ft.Apply(context.Background())
+	if err == nil {
+		t.Fatal("Apply must return error for unknown owner")
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Errorf("target file %s must not exist after failed Apply", target)
+	}
+	tmp := target + ".tmp"
+	if _, statErr := os.Stat(tmp); !os.IsNotExist(statErr) {
+		t.Errorf("tempfile %s must not exist after failed Apply", tmp)
+	}
+}

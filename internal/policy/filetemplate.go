@@ -192,33 +192,38 @@ func (f *FileTemplate) Apply(ctx context.Context) error {
 	if err := os.WriteFile(tmp, rendered, f.Mode); err != nil { //nolint:gosec
 		return fmt.Errorf("file_template write tmp %s: %w", tmp, err)
 	}
-	if err := os.Rename(tmp, f.Path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("file_template rename %s: %w", f.Path, err)
-	}
 
-	// Optional chown.
+	// Optional chown: resolve uid/gid and chown the tempfile BEFORE rename so
+	// that a lookup or chown failure leaves no artifact at the target path.
 	if f.Owner != "" || f.Group != "" {
 		uid, gid := -1, -1
 		if f.Owner != "" {
 			u, err := user.Lookup(f.Owner)
 			if err != nil {
+				_ = os.Remove(tmp)
 				return fmt.Errorf("file_template: owner lookup %q: %w", f.Owner, err)
 			}
-			uid64, _ := strconv.ParseInt(u.Uid, 10, 32)
-			uid = int(uid64)
+			n, _ := strconv.Atoi(u.Uid)
+			uid = n
 		}
 		if f.Group != "" {
 			g, err := user.LookupGroup(f.Group)
 			if err != nil {
+				_ = os.Remove(tmp)
 				return fmt.Errorf("file_template: group lookup %q: %w", f.Group, err)
 			}
-			gid64, _ := strconv.ParseInt(g.Gid, 10, 32)
-			gid = int(gid64)
+			n, _ := strconv.Atoi(g.Gid)
+			gid = n
 		}
-		if err := os.Chown(f.Path, uid, gid); err != nil {
-			return fmt.Errorf("file_template chown %s: %w", f.Path, err)
+		if err := os.Chown(tmp, uid, gid); err != nil {
+			_ = os.Remove(tmp)
+			return fmt.Errorf("file_template chown %s: %w", tmp, err)
 		}
+	}
+
+	if err := os.Rename(tmp, f.Path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("file_template rename %s: %w", f.Path, err)
 	}
 
 	// Optional post-apply hook.

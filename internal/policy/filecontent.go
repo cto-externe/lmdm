@@ -11,12 +11,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // FileContent writes a file at a given path with literal content.
 type FileContent struct {
-	Path    string
-	Content string
+	Path             string
+	Content          string
+	PostApplyCommand string
+	PostApplyTimeout time.Duration
 }
 
 // NewFileContent constructs a FileContent from the YAML params map.
@@ -26,7 +29,16 @@ func NewFileContent(params map[string]any) (Action, error) {
 	if path == "" {
 		return nil, errors.New("file_content: path is required")
 	}
-	return &FileContent{Path: path, Content: content}, nil
+	fc := &FileContent{Path: path, Content: content}
+	if v, ok := params["post_apply_command"].(string); ok {
+		fc.PostApplyCommand = v
+	}
+	if v, ok := params["post_apply_timeout"].(string); ok {
+		if d, err := time.ParseDuration(v); err == nil {
+			fc.PostApplyTimeout = d
+		}
+	}
+	return fc, nil
 }
 
 // Validate checks that FileContent parameters are well-formed.
@@ -54,11 +66,17 @@ func (f *FileContent) Snapshot(_ context.Context, snapDir string) error {
 }
 
 // Apply writes the desired content to the target path, creating parent dirs as needed.
-func (f *FileContent) Apply(_ context.Context) error {
+func (f *FileContent) Apply(ctx context.Context) error {
 	if err := os.MkdirAll(filepath.Dir(f.Path), 0o750); err != nil { //nolint:gosec // path is from a signed profile
 		return fmt.Errorf("file_content mkdir %s: %w", f.Path, err)
 	}
-	return os.WriteFile(f.Path, []byte(f.Content), 0o644) //nolint:gosec // mode 644 for config files
+	if err := os.WriteFile(f.Path, []byte(f.Content), 0o644); err != nil { //nolint:gosec // mode 644 for config files
+		return err
+	}
+	if _, err := runPostApply(ctx, f.PostApplyCommand, f.PostApplyTimeout); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Verify checks whether the file at Path matches the desired Content via sha256.

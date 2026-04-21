@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"syscall"
 	"time"
 )
 
@@ -21,8 +22,8 @@ const DefaultPostApplyTimeout = 60 * time.Second
 // Callers in file_content / package_ensure / file_template action types
 // invoke this at the end of their Apply phase; a non-nil return triggers
 // the central rollback via the executor's failure path.
-func runPostApply(ctx context.Context, cmd string, timeout time.Duration) (string, error) {
-	if cmd == "" {
+func runPostApply(ctx context.Context, shellCmd string, timeout time.Duration) (string, error) {
+	if shellCmd == "" {
 		return "", nil
 	}
 	if timeout <= 0 {
@@ -30,9 +31,15 @@ func runPostApply(ctx context.Context, cmd string, timeout time.Duration) (strin
 	}
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	out, err := exec.CommandContext(runCtx, "sh", "-c", cmd).CombinedOutput() //nolint:gosec // cmd from trusted signed profile
+	// Run in its own process group so the timeout kills any descendants, not just sh.
+	cmd := exec.CommandContext(runCtx, "sh", "-c", shellCmd) //nolint:gosec // shellCmd from trusted signed profile
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return string(out), fmt.Errorf("post_apply_command %q failed: %w (output: %s)", cmd, err, string(out))
+		return string(out), fmt.Errorf("post_apply_command %q failed: %w (output: %s)", shellCmd, err, string(out))
 	}
 	return string(out), nil
 }

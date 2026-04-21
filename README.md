@@ -174,6 +174,27 @@ export LMDM_ENC_KEY_PATH=deploy/secrets/enc-key.b64
 go run ./cmd/lmdm-user create-admin --email admin@exemple.fr
 ```
 
+### Profils ANSSI-BP-028
+
+LMDM livre 4 profils YAML alignés sur le guide [ANSSI-BP-028 v2.0](https://messervices.cyber.gouv.fr/documents-guides/fr_np_linux_configuration-v2.0.pdf) :
+
+- `profiles/anssi/anssi-minimal.yml` — durcissement de base (niveau M)
+- `profiles/anssi/anssi-intermediaire.yml` — recommandé sur la plupart des systèmes (M+I)
+- `profiles/anssi/anssi-renforce.yml` — systèmes à fort besoin de sécurité (M+I+R)
+- `profiles/anssi/anssi-eleve.yml` — ops avec ressources dédiées (M+I+R+E)
+
+Chaque règle porte un commentaire `# ANSSI R{NN} — {titre}` pour faciliter l'audit RSSI.
+
+Trois nouveaux action types accompagnent les profils :
+
+- `nftables_rules` — pare-feu avec validation `nft -c` avant reload
+- `kernel_module_blacklist` — empêche le chargement de modules (cramfs, usb_storage, etc.)
+- `file_template` — Go `text/template` avec variables device (`.Hostname`, `.DeviceID`, `.TenantID`)
+
+Un hook optionnel `post_apply_command` sur `file_content` / `package_ensure` / `file_template` permet de déclencher une commande shell après succès de l'Apply (ex : `update-grub`, `apparmor_parser -r`). Un exit non-nul déclenche le rollback.
+
+Guide opérateur : [docs/fr/anssi.md](docs/fr/anssi.md). Matrice de couverture des 80 recommandations : [docs/fr/anssi-coverage.md](docs/fr/anssi-coverage.md). Smoke test : `sudo ./scripts/anssi-check.sh minimal`.
+
 ## Structure
 
 - `proto/lmdm/v1/` — définitions protobuf (API v1)

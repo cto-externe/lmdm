@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"crypto/x509"
 	"encoding/base64"
 	"fmt"
@@ -37,6 +38,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/patchingester"
+	"github.com/cto-externe/lmdm/internal/patchschedule"
 	"github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/revocation"
 	"github.com/cto-externe/lmdm/internal/server"
@@ -318,6 +320,17 @@ func run() error {
 		}
 	}()
 	slog.Info("deployment engine started")
+
+	// Patch schedule engine (server-side cron for patch management).
+	patchRepo := patchschedule.NewRepository(pool)
+	patchResolver := patchschedule.NewResolver(pool.Pool)
+	patchEngine := patchschedule.NewEngine(patchRepo, bus.NC(), patchResolver, deviceRepo, 60*time.Second)
+	go func() {
+		if err := patchEngine.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("patchschedule engine exited", "err", err)
+		}
+	}()
+	slog.Info("patchschedule engine started")
 
 	cmdResultsIng := commandresultsingester.New(bus, deviceRepo, deploymentEngine)
 	if err := cmdResultsIng.Start(ctx); err != nil {

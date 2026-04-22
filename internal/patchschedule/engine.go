@@ -38,9 +38,9 @@ type policyResolver interface {
 	Resolve(ctx context.Context, deviceID uuid.UUID) (*ResolvedPolicy, error)
 }
 
-// deviceLister enumerates devices for a tenant-wide schedule (device_id NULL).
+// DeviceLister enumerates devices for a tenant-wide schedule (device_id NULL).
 // One row → one command published per device.
-type deviceLister interface {
+type DeviceLister interface {
 	ListTenantDeviceIDs(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error)
 }
 
@@ -49,18 +49,18 @@ type Engine struct {
 	repo      repoIface
 	publisher CommandPublisher
 	resolver  policyResolver
-	devices   deviceLister
+	devices   DeviceLister
 	parser    cron.Parser
 	interval  time.Duration
 	now       func() time.Time
 }
 
 // NewEngine wires an Engine. Interval defaults to 60s when 0.
-func NewEngine(repo *Repository, pub CommandPublisher, res *Resolver, devs deviceLister, interval time.Duration) *Engine {
+func NewEngine(repo *Repository, pub CommandPublisher, res *Resolver, devs DeviceLister, interval time.Duration) *Engine {
 	return newEngine(repo, pub, res, devs, interval, time.Now)
 }
 
-func newEngine(repo repoIface, pub CommandPublisher, res policyResolver, devs deviceLister, interval time.Duration, nowFn func() time.Time) *Engine {
+func newEngine(repo repoIface, pub CommandPublisher, res policyResolver, devs DeviceLister, interval time.Duration, nowFn func() time.Time) *Engine {
 	if interval <= 0 {
 		interval = 60 * time.Second
 	}

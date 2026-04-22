@@ -425,6 +425,75 @@ func TestIntegrationFindLatestHealth_NoData_ReturnsSentinel(t *testing.T) {
 	}
 }
 
+func TestIntegrationListTenantDeviceIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantA := uuid.MustParse(defaultTenant)
+	tenantB := uuid.New()
+
+	// Insert 2 devices for tenant A.
+	for i := 0; i < 2; i++ {
+		if err := r.Insert(ctx, &Device{
+			ID:                 uuid.New(),
+			TenantID:           tenantA,
+			Type:               TypeWorkstation,
+			Hostname:           fmt.Sprintf("A-%d", i),
+			AgentPubkeyEd25519: []byte(fmt.Sprintf("ed-a-%d", i)),
+			AgentPubkeyMLDSA:   []byte(fmt.Sprintf("ml-a-%d", i)),
+		}); err != nil {
+			t.Fatalf("insert tenant A device %d: %v", i, err)
+		}
+	}
+
+	// Insert 1 device for tenant B (must insert tenant B row first due to FK).
+	if _, err := r.pool.Exec(ctx, `INSERT INTO tenants (id, name) VALUES ($1, $2)`, tenantB, "tenant-b-ltdi"); err != nil {
+		t.Fatalf("insert tenant B: %v", err)
+	}
+	devB := uuid.New()
+	if err := r.Insert(ctx, &Device{
+		ID:                 devB,
+		TenantID:           tenantB,
+		Type:               TypeWorkstation,
+		Hostname:           "B-0",
+		AgentPubkeyEd25519: []byte("ed-b-0"),
+		AgentPubkeyMLDSA:   []byte("ml-b-0"),
+	}); err != nil {
+		t.Fatalf("insert tenant B device: %v", err)
+	}
+
+	// Tenant A must return 2 IDs.
+	idsA, err := r.ListTenantDeviceIDs(ctx, tenantA)
+	if err != nil {
+		t.Fatalf("ListTenantDeviceIDs(tenantA): %v", err)
+	}
+	if len(idsA) != 2 {
+		t.Errorf("tenantA: got %d IDs, want 2", len(idsA))
+	}
+
+	// Tenant B must return exactly the one device.
+	idsB, err := r.ListTenantDeviceIDs(ctx, tenantB)
+	if err != nil {
+		t.Fatalf("ListTenantDeviceIDs(tenantB): %v", err)
+	}
+	if len(idsB) != 1 || idsB[0] != devB {
+		t.Errorf("tenantB: got %v, want [%v]", idsB, devB)
+	}
+
+	// Unknown tenant must return empty slice, no error.
+	idsNone, err := r.ListTenantDeviceIDs(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("ListTenantDeviceIDs(unknown): %v", err)
+	}
+	if len(idsNone) != 0 {
+		t.Errorf("unknown tenant: got %d IDs, want 0", len(idsNone))
+	}
+}
+
 func replaceUserDevices(dsn, user, password string) string {
 	const scheme = "postgres://"
 	if len(dsn) < len(scheme) || dsn[:len(scheme)] != scheme {

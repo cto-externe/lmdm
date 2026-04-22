@@ -134,6 +134,19 @@ func (r *Repository) FindByID(ctx context.Context, id uuid.UUID) (*Schedule, err
 	return s, err
 }
 
+// UpdateTenantPolicy writes the tenant-level reboot_policy + maintenance_window.
+// maintenanceWindow may be nil (NULL in DB — falls back to "no window set").
+// Does NOT validate cron syntax — callers (API handlers) must validate.
+func (r *Repository) UpdateTenantPolicy(ctx context.Context, tenantID uuid.UUID, rebootPolicy string, maintenanceWindow *string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE tenants
+		   SET reboot_policy = $2,
+		       maintenance_window = $3
+		 WHERE id = $1
+	`, tenantID, rebootPolicy, maintenanceWindow)
+	return err
+}
+
 // Delete removes a schedule by ID.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM patch_schedules WHERE id = $1`, id)

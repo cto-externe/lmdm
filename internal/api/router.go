@@ -130,5 +130,13 @@ func Router(d *Deps) http.Handler {
 	mux.Handle("DELETE /api/v1/patch-schedules/{id}",
 		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handleDeletePatchSchedule))))
 
+	// ----- Reboot + policy -----
+	mux.Handle("POST /api/v1/devices/{id}/reboot",
+		authed(auth.RequirePermission(auth.PermDevicesReboot, http.HandlerFunc(d.handleRebootDevice))))
+	mux.Handle("PATCH /api/v1/tenants/current/reboot-policy",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handlePatchTenantPolicy))))
+	mux.Handle("PATCH /api/v1/devices/{id}/reboot-policy",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handlePatchDevicePolicyOverride))))
+
 	return mux
 }

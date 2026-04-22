@@ -394,3 +394,48 @@ func TestIntegrationPatchScheduleRLSIsolation(t *testing.T) {
 		t.Errorf("repoB.List returned %d rows, want 0 (RLS leak)", len(listB))
 	}
 }
+
+func TestIntegrationUpdateTenantPolicy(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, pool, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse(defaultTenant)
+
+	window := "0 22 * * 2"
+	if err := r.UpdateTenantPolicy(ctx, tenantID, "immediate_after_apply", &window); err != nil {
+		t.Fatalf("UpdateTenantPolicy: %v", err)
+	}
+
+	var gotPolicy string
+	var gotWindow *string
+	if err := pool.QueryRow(ctx, `SELECT reboot_policy, maintenance_window FROM tenants WHERE id = $1`, tenantID).
+		Scan(&gotPolicy, &gotWindow); err != nil {
+		t.Fatalf("reload tenant: %v", err)
+	}
+	if gotPolicy != "immediate_after_apply" {
+		t.Errorf("reboot_policy = %q, want %q", gotPolicy, "immediate_after_apply")
+	}
+	if gotWindow == nil || *gotWindow != window {
+		t.Errorf("maintenance_window = %v, want %q", gotWindow, window)
+	}
+
+	// Second call with nil window clears it back to NULL.
+	if err := r.UpdateTenantPolicy(ctx, tenantID, "admin_only", nil); err != nil {
+		t.Fatalf("UpdateTenantPolicy (clear): %v", err)
+	}
+
+	if err := pool.QueryRow(ctx, `SELECT reboot_policy, maintenance_window FROM tenants WHERE id = $1`, tenantID).
+		Scan(&gotPolicy, &gotWindow); err != nil {
+		t.Fatalf("reload tenant after clear: %v", err)
+	}
+	if gotPolicy != "admin_only" {
+		t.Errorf("reboot_policy after clear = %q, want %q", gotPolicy, "admin_only")
+	}
+	if gotWindow != nil {
+		t.Errorf("maintenance_window after clear = %v, want nil", gotWindow)
+	}
+}

@@ -494,6 +494,71 @@ func TestIntegrationListTenantDeviceIDs(t *testing.T) {
 	}
 }
 
+func TestIntegrationUpdateRebootOverrides(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse(defaultTenant)
+
+	// Insert a device to apply overrides to.
+	deviceID := uuid.New()
+	d := &Device{
+		ID:                 deviceID,
+		TenantID:           tenantID,
+		Type:               TypeWorkstation,
+		Hostname:           "reboot-override-host",
+		AgentPubkeyEd25519: []byte("ed25519-pub"),
+		AgentPubkeyMLDSA:   []byte("mldsa-pub"),
+	}
+	if err := r.Insert(ctx, d); err != nil {
+		t.Fatalf("Insert device: %v", err)
+	}
+
+	// Set both overrides.
+	policy := "next_maintenance_window"
+	window := "0 3 * * 0"
+	if err := r.UpdateRebootOverrides(ctx, tenantID, deviceID, &policy, &window); err != nil {
+		t.Fatalf("UpdateRebootOverrides: %v", err)
+	}
+
+	// Reload and verify.
+	var gotPolicy, gotWindow *string
+	if err := r.Pool().QueryRow(ctx, `
+		SELECT reboot_policy_override, maintenance_window_override
+		  FROM devices WHERE id = $1 AND tenant_id = $2
+	`, deviceID, tenantID).Scan(&gotPolicy, &gotWindow); err != nil {
+		t.Fatalf("reload device overrides: %v", err)
+	}
+	if gotPolicy == nil || *gotPolicy != policy {
+		t.Errorf("reboot_policy_override = %v, want %q", gotPolicy, policy)
+	}
+	if gotWindow == nil || *gotWindow != window {
+		t.Errorf("maintenance_window_override = %v, want %q", gotWindow, window)
+	}
+
+	// Clear overrides with nil.
+	if err := r.UpdateRebootOverrides(ctx, tenantID, deviceID, nil, nil); err != nil {
+		t.Fatalf("UpdateRebootOverrides (clear): %v", err)
+	}
+
+	if err := r.Pool().QueryRow(ctx, `
+		SELECT reboot_policy_override, maintenance_window_override
+		  FROM devices WHERE id = $1 AND tenant_id = $2
+	`, deviceID, tenantID).Scan(&gotPolicy, &gotWindow); err != nil {
+		t.Fatalf("reload device overrides after clear: %v", err)
+	}
+	if gotPolicy != nil {
+		t.Errorf("reboot_policy_override after clear = %v, want nil", gotPolicy)
+	}
+	if gotWindow != nil {
+		t.Errorf("maintenance_window_override after clear = %v, want nil", gotWindow)
+	}
+}
+
 func replaceUserDevices(dsn, user, password string) string {
 	const scheme = "postgres://"
 	if len(dsn) < len(scheme) || dsn[:len(scheme)] != scheme {

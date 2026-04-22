@@ -39,6 +39,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/patchingester"
 	"github.com/cto-externe/lmdm/internal/patchschedule"
+	"github.com/cto-externe/lmdm/internal/rebootingester"
 	"github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/revocation"
 	"github.com/cto-externe/lmdm/internal/server"
@@ -300,6 +301,14 @@ func run() error {
 
 	usersRepo := users.New(pool)
 	auditWriter := audit.NewWriter(pool)
+
+	rebootIng := rebootingester.New(bus.NC(), pool, deviceRepo, auditWriter)
+	if err := rebootIng.Start(ctx); err != nil {
+		return fmt.Errorf("rebootingester start: %w", err)
+	}
+	defer func() { _ = rebootIng.Stop() }()
+	slog.Info("reboot ingester started")
+
 	authSvc := &auth.Service{
 		Users:    usersRepo,
 		Audit:    auditWriter,

@@ -356,6 +356,7 @@ func run() error {
 		MFARateLimit:      auth.NewRateLimiter(60, time.Minute),
 		NATS:              bus.NC(),
 		TenantID:          tenantID,
+		PatchRepo:         patchRepo,
 	}
 	mux.Handle("/api/", api.Router(apiDeps))
 

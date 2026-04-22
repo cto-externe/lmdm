@@ -72,3 +72,38 @@ func TestHasPermission_DeploymentsPerOperatorAndViewer(t *testing.T) {
 		t.Error("viewer must not manage deployments")
 	}
 }
+
+func TestHasPermission_PatchManagementRoles(t *testing.T) {
+	// Admin has all three patch management permissions.
+	if !HasPermission(RoleAdmin, PermPatchSchedulesRead) {
+		t.Error("admin must have patch_schedules.read")
+	}
+	if !HasPermission(RoleAdmin, PermPatchSchedulesManage) {
+		t.Error("admin must have patch_schedules.manage")
+	}
+	if !HasPermission(RoleAdmin, PermDevicesReboot) {
+		t.Error("admin must have devices.reboot")
+	}
+
+	// Operator has all three patch management permissions (can plan + trigger reboots).
+	if !HasPermission(RoleOperator, PermPatchSchedulesRead) {
+		t.Error("operator must have patch_schedules.read")
+	}
+	if !HasPermission(RoleOperator, PermPatchSchedulesManage) {
+		t.Error("operator must have patch_schedules.manage")
+	}
+	if !HasPermission(RoleOperator, PermDevicesReboot) {
+		t.Error("operator must have devices.reboot")
+	}
+
+	// Viewer has only read access — no manage or reboot.
+	if !HasPermission(RoleViewer, PermPatchSchedulesRead) {
+		t.Error("viewer must have patch_schedules.read")
+	}
+	if HasPermission(RoleViewer, PermPatchSchedulesManage) {
+		t.Error("viewer must NOT have patch_schedules.manage")
+	}
+	if HasPermission(RoleViewer, PermDevicesReboot) {
+		t.Error("viewer must NOT have devices.reboot")
+	}
+}

@@ -112,3 +112,24 @@ enum EventLevel {
   EVENT_LEVEL_ERROR = 3;
   EVENT_LEVEL_CRITICAL = 4;
 }
+
+// ---------------------------------------------------------------------------
+// Reboot Report (Agent → Server)
+// Subject: status.device.{deviceID}.reboot-report
+// ---------------------------------------------------------------------------
+
+// Published by the agent after every reboot attempt (success or deferred).
+message RebootReport {
+  DeviceID device_id = 1;
+  google.protobuf.Timestamp attempted_at = 2;
+  // Outcome values:
+  //   "rebooted"                  — actually rebooted (report sent pre-reboot)
+  //   "deferred_user_active"      — user session detected, reboot skipped
+  //   "deferred_skipped"          — other reason to skip (not in window)
+  //   "forced_after_max_defers"   — defer count >= max, reboot forced with wall
+  //   "refused_unsupported"       — PatchManager does not support reboot
+  //   "error"                     — reboot attempted but systemctl failed
+  string outcome = 3;
+  int32 defer_count = 4;
+  string reason = 5;  // Copy of the RebootCommand.reason for correlation.
+}

@@ -20,6 +20,7 @@ import (
 
 	lmdmv1 "github.com/cto-externe/lmdm/gen/go/lmdm/v1"
 	"github.com/cto-externe/lmdm/internal/agenthealthcheck"
+	"github.com/cto-externe/lmdm/internal/agentsession"
 	"github.com/cto-externe/lmdm/internal/agentstate"
 	"github.com/cto-externe/lmdm/internal/distro"
 	"github.com/cto-externe/lmdm/internal/policy"
@@ -34,7 +35,7 @@ type JetStream interface {
 
 // Handler subscribes to fleet.agent.{deviceID}.commands and processes
 // ApplyProfileCommand, RemoveProfileCommand, ApplyPatchesCommand,
-// RollbackCommand, and RunHealthCheckCommand messages.
+// RollbackCommand, RunHealthCheckCommand, and RebootCommand messages.
 type Handler struct {
 	nc        *nats.Conn
 	serverPub *pqhybrid.SigningPublicKey
@@ -51,10 +52,15 @@ type Handler struct {
 	rollbackHandler *RollbackHandler
 	hcHandler       *HealthCheckHandler
 	ackTimeout      time.Duration
+
+	session       *agentsession.Checker
+	rebootExec    RebootExecutor
+	maxDeferCount int // defaults to 3 when 0
 }
 
 // HandlerOptions groups the dependencies for NewHandler. Optional deps (JS,
-// State, HCRunner) may be nil — the watchdog/ack path degrades gracefully.
+// State, HCRunner, Session, RebootExec) may be nil — the handler degrades
+// gracefully.
 type HandlerOptions struct {
 	NC         *nats.Conn
 	ServerPub  *pqhybrid.SigningPublicKey
@@ -67,22 +73,29 @@ type HandlerOptions struct {
 	State      *agentstate.Store
 	HCRunner   HealthCheckRunner
 	AckTimeout time.Duration
+
+	Session       *agentsession.Checker
+	RebootExec    RebootExecutor
+	MaxDeferCount int
 }
 
 // NewHandler wires a Handler.
 func NewHandler(opts HandlerOptions) *Handler {
 	h := &Handler{
-		nc:         opts.NC,
-		serverPub:  opts.ServerPub,
-		registry:   opts.Registry,
-		deviceID:   opts.DeviceID,
-		snapRoot:   opts.SnapRoot,
-		store:      opts.Store,
-		pm:         opts.PM,
-		js:         opts.JS,
-		state:      opts.State,
-		hcRunner:   opts.HCRunner,
-		ackTimeout: opts.AckTimeout,
+		nc:            opts.NC,
+		serverPub:     opts.ServerPub,
+		registry:      opts.Registry,
+		deviceID:      opts.DeviceID,
+		snapRoot:      opts.SnapRoot,
+		store:         opts.Store,
+		pm:            opts.PM,
+		js:            opts.JS,
+		state:         opts.State,
+		hcRunner:      opts.HCRunner,
+		ackTimeout:    opts.AckTimeout,
+		session:       opts.Session,
+		rebootExec:    opts.RebootExec,
+		maxDeferCount: opts.MaxDeferCount,
 	}
 	if h.ackTimeout == 0 {
 		h.ackTimeout = 10 * time.Second
@@ -143,6 +156,8 @@ func (h *Handler) handleMessage(msg *nats.Msg) {
 		h.handleRemoveProfile(ctx, env.GetRemoveProfile().GetProfileId().GetId())
 	case env.GetApplyPatches() != nil:
 		h.handleApplyPatches(ctx, env.GetApplyPatches())
+	case env.GetReboot() != nil:
+		h.handleRebootCommand(ctx, env.GetReboot())
 	case env.GetRollback() != nil:
 		if h.rollbackHandler != nil {
 			h.rollbackHandler.Handle(ctx, env.GetCommandId(), env.GetRollback())
@@ -352,17 +367,33 @@ func (h *Handler) handleApplyPatches(ctx context.Context, cmd *lmdmv1.ApplyPatch
 	}
 
 	// Re-detect updates after applying and publish a fresh PatchReport.
-	h.publishPatchReport(ctx)
+	rebootRequired, _ := h.publishPatchReport(ctx)
+
+	// Chain a reboot when the server requested it and the kernel needs one.
+	// "immediate_after_apply" is defined server-side in the patchschedule
+	// package; we use the raw string here so the agent has no dependency on
+	// server packages.
+	if cmd.GetRebootPolicy() == "immediate_after_apply" && rebootRequired {
+		h.handleRebootCommand(ctx, &lmdmv1.RebootCommand{
+			Reason:             "immediate_after_patch",
+			GracePeriodSeconds: 300,
+			Force:              false,
+		})
+	}
 }
 
-func (h *Handler) publishPatchReport(ctx context.Context) {
+// publishPatchReport queries the local PatchManager for the current update
+// list and publishes a PatchReport on fleet.agent.{id}.patches. Returns the
+// reboot_required flag so callers can chain a RebootCommand when policy
+// demands it.
+func (h *Handler) publishPatchReport(ctx context.Context) (bool, error) {
 	if h.pm == nil {
-		return
+		return false, nil
 	}
 	updates, reboot, err := h.pm.DetectUpdates(ctx)
 	if err != nil {
 		slog.Warn("agentpolicy: post-apply detect failed", "err", err)
-		return
+		return false, err
 	}
 	protoUpdates := make([]*lmdmv1.AvailableUpdate, 0, len(updates))
 	for _, u := range updates {
@@ -379,9 +410,116 @@ func (h *Handler) publishPatchReport(ctx context.Context) {
 	}
 	data, err := proto.Marshal(report)
 	if err != nil {
+		return reboot, err
+	}
+	if h.nc != nil {
+		_ = h.nc.Publish("fleet.agent."+h.deviceID+".patches", data)
+	}
+	return reboot, nil
+}
+
+// handleRebootCommand processes a RebootCommand.
+//   - if cmd.Force=true → skip session check, broadcast, wait grace, reboot.
+//   - else check session; if active:
+//   - increment defer counter
+//   - if counter < maxDefer → publish RebootReport(deferred_user_active) and return
+//   - if counter >= maxDefer → force path (log, broadcast, wait, reboot)
+//   - else no active session → broadcast, wait grace, reboot.
+//
+// RebootReport is published BEFORE the actual reboot so the server has a
+// record even if the host never comes back online.
+func (h *Handler) handleRebootCommand(ctx context.Context, cmd *lmdmv1.RebootCommand) {
+	grace := time.Duration(cmd.GetGracePeriodSeconds()) * time.Second
+	if grace <= 0 {
+		grace = 5 * time.Minute
+	}
+	maxDefer := h.maxDeferCount
+	if maxDefer <= 0 {
+		maxDefer = 3
+	}
+
+	force := cmd.GetForce()
+	if !force && h.session != nil && h.session.HasActiveSession(ctx) {
+		h.deferReboot(ctx, cmd, maxDefer, grace)
 		return
 	}
-	_ = h.nc.Publish("fleet.agent."+h.deviceID+".patches", data)
+
+	// Proceed with the reboot.
+	_ = h.publishRebootReport(ctx, cmd, "rebooted", 0)
+	if h.rebootExec != nil {
+		msg := cmd.GetUserMessage()
+		if msg == "" {
+			msg = "LMDM: system reboot in progress."
+		}
+		_ = h.rebootExec.Broadcast(ctx, msg+"\nReboot in "+grace.Round(time.Second).String()+".")
+		_ = h.rebootExec.Sleep(ctx, grace)
+		if err := h.rebootExec.Reboot(ctx); err != nil {
+			slog.Error("agentpolicy: reboot failed", "err", err)
+			_ = h.publishRebootReport(ctx, cmd, "error", 0)
+			return
+		}
+	}
+	if h.state != nil {
+		_ = h.state.ClearRebootDefer()
+	}
+}
+
+// deferReboot increments the counter and decides between skip or force.
+func (h *Handler) deferReboot(ctx context.Context, cmd *lmdmv1.RebootCommand, maxDefer int, grace time.Duration) {
+	var state agentstate.RebootDeferState
+	if h.state != nil {
+		state, _ = h.state.GetRebootDefer()
+	}
+	state.Count++
+	state.LastDeferredAt = time.Now().UTC()
+
+	if state.Count >= maxDefer {
+		slog.Warn("agentpolicy: reboot defer limit reached, forcing",
+			"count", state.Count, "max", maxDefer)
+		_ = h.publishRebootReport(ctx, cmd, "forced_after_max_defers", state.Count)
+		if h.rebootExec != nil {
+			forceMsg := fmt.Sprintf("LMDM: maintenance reboot in progress (deferred %d times). Please save your work.", state.Count)
+			_ = h.rebootExec.Broadcast(ctx, forceMsg)
+			_ = h.rebootExec.Sleep(ctx, grace)
+			_ = h.rebootExec.Reboot(ctx)
+		}
+		if h.state != nil {
+			_ = h.state.ClearRebootDefer()
+		}
+		return
+	}
+
+	slog.Info("agentpolicy: reboot deferred, user session active",
+		"count", state.Count, "max", maxDefer)
+	if h.state != nil {
+		_ = h.state.SetRebootDefer(state)
+	}
+	_ = h.publishRebootReport(ctx, cmd, "deferred_user_active", state.Count)
+}
+
+// publishRebootReport publishes on status.device.{deviceID}.reboot-report.
+// Best-effort: errors are logged, not propagated (the reboot is the point).
+func (h *Handler) publishRebootReport(_ context.Context, cmd *lmdmv1.RebootCommand, outcome string, deferCount int) error {
+	rep := &lmdmv1.RebootReport{
+		DeviceId:    &lmdmv1.DeviceID{Id: h.deviceID},
+		AttemptedAt: timestamppb.Now(),
+		Outcome:     outcome,
+		DeferCount:  int32(deferCount),
+		Reason:      cmd.GetReason(),
+	}
+	data, err := proto.Marshal(rep)
+	if err != nil {
+		return err
+	}
+	subject := "status.device." + h.deviceID + ".reboot-report"
+	if h.nc == nil {
+		return nil
+	}
+	if err := h.nc.Publish(subject, data); err != nil {
+		slog.Warn("agentpolicy: reboot report publish failed", "err", err)
+		return err
+	}
+	return h.nc.Flush()
 }
 
 func (h *Handler) publishCompliance(result policy.ExecutionResult) {

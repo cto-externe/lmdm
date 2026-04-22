@@ -10,3 +10,6 @@ var (
 
 // Single-slot key for the current pending deployment.
 var keyCurrent = []byte("current")
+
+var bucketPatchDefer = []byte("patch_defer")
+var keyDeferCounter = []byte("reboot_defer")

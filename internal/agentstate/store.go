@@ -91,3 +91,47 @@ func (s *Store) ClearPending() error {
 		return tx.Bucket(bucketPendingDeployment).Delete(keyCurrent)
 	})
 }
+
+// RebootDeferState persists the consecutive defer count between agent restarts
+// so we can force a reboot after N user-active defers (per brainstorm Q5=C).
+type RebootDeferState struct {
+	Count          int       `json:"count"`
+	LastDeferredAt time.Time `json:"last_deferred_at"`
+}
+
+// GetRebootDefer returns the current defer state, or zero values when absent.
+func (s *Store) GetRebootDefer() (RebootDeferState, error) {
+	var state RebootDeferState
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketPatchDefer)
+		if b == nil {
+			return nil
+		}
+		raw := b.Get(keyDeferCounter)
+		if raw == nil {
+			return nil
+		}
+		return json.Unmarshal(raw, &state)
+	})
+	return state, err
+}
+
+// SetRebootDefer overwrites the defer state.
+func (s *Store) SetRebootDefer(state RebootDeferState) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(bucketPatchDefer)
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		return b.Put(keyDeferCounter, raw)
+	})
+}
+
+// ClearRebootDefer resets the counter after a successful reboot.
+func (s *Store) ClearRebootDefer() error {
+	return s.SetRebootDefer(RebootDeferState{})
+}

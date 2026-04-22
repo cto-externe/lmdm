@@ -90,3 +90,78 @@ func TestStore_ClearPending_Idempotent(t *testing.T) {
 		t.Errorf("clear on empty store should not error, got %v", err)
 	}
 }
+
+func TestRebootDefer_EmptyByDefault(t *testing.T) {
+	s := newStore(t)
+	state, err := s.GetRebootDefer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Count != 0 {
+		t.Errorf("expected count=0 on empty store, got %d", state.Count)
+	}
+	if !state.LastDeferredAt.IsZero() {
+		t.Errorf("expected zero time on empty store, got %v", state.LastDeferredAt)
+	}
+}
+
+func TestRebootDefer_SetAndGet(t *testing.T) {
+	s := newStore(t)
+	ts := time.Date(2026, 4, 22, 9, 0, 0, 0, time.UTC)
+	if err := s.SetRebootDefer(RebootDeferState{Count: 2, LastDeferredAt: ts}); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.GetRebootDefer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Count != 2 {
+		t.Errorf("expected count=2, got %d", state.Count)
+	}
+	if !state.LastDeferredAt.Equal(ts) {
+		t.Errorf("expected %v, got %v", ts, state.LastDeferredAt)
+	}
+}
+
+func TestRebootDefer_Clear_ResetsCounter(t *testing.T) {
+	s := newStore(t)
+	if err := s.SetRebootDefer(RebootDeferState{Count: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearRebootDefer(); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.GetRebootDefer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Count != 0 {
+		t.Errorf("expected count=0 after clear, got %d", state.Count)
+	}
+}
+
+func TestRebootDefer_Persistence_AcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	s1, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.SetRebootDefer(RebootDeferState{Count: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	state, err := s2.GetRebootDefer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Count != 5 {
+		t.Errorf("expected count=5 after reopen, got %d", state.Count)
+	}
+}

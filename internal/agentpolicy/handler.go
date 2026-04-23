@@ -426,8 +426,13 @@ func (h *Handler) publishPatchReport(ctx context.Context) (bool, error) {
 //   - if counter >= maxDefer → force path (log, broadcast, wait, reboot)
 //   - else no active session → broadcast, wait grace, reboot.
 //
-// RebootReport is published BEFORE the actual reboot so the server has a
-// record even if the host never comes back online.
+// RebootReport is published only for non-success outcomes
+// (deferred_user_active, forced_after_max_defers, error). A successful
+// reboot is implicitly confirmed by the next heartbeat after the host
+// comes back up — there's no point publishing "rebooted" before since
+// the agent's NATS connection vanishes during the reboot anyway, and
+// publishing it pre-reboot creates a false-positive record if the
+// reboot itself fails.
 func (h *Handler) handleRebootCommand(ctx context.Context, cmd *lmdmv1.RebootCommand) {
 	grace := time.Duration(cmd.GetGracePeriodSeconds()) * time.Second
 	if grace <= 0 {
@@ -445,7 +450,6 @@ func (h *Handler) handleRebootCommand(ctx context.Context, cmd *lmdmv1.RebootCom
 	}
 
 	// Proceed with the reboot.
-	_ = h.publishRebootReport(ctx, cmd, "rebooted", 0)
 	if h.rebootExec != nil {
 		msg := cmd.GetUserMessage()
 		if msg == "" {

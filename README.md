@@ -195,6 +195,18 @@ Un hook optionnel `post_apply_command` sur `file_content` / `package_ensure` / `
 
 Guide opérateur : [docs/fr/anssi.md](docs/fr/anssi.md). Matrice de couverture des 80 recommandations : [docs/fr/anssi-coverage.md](docs/fr/anssi-coverage.md). Smoke test : `sudo ./scripts/anssi-check.sh minimal`.
 
+### Patch management
+
+LMDM orchestre la détection et l'application des mises à jour système :
+
+- **Détection périodique** — l'agent appelle `apt list --upgradable` (ou `dnf`) toutes les heures et publie un `PatchReport`.
+- **Schedules serveur** — `POST /api/v1/patch-schedules` avec un cron (ex `0 3 * * *` = 3h du matin tous les jours). Filtre `security_only` disponible. Le scheduler ticke toutes les 60s côté serveur.
+- **Reboot policy hybride** — `admin_only` (défaut), `immediate_after_apply`, `next_maintenance_window`. Configurable au niveau tenant, overridable par device.
+- **Session-aware** — l'agent détecte les sessions actives (`loginctl` / `who`) et diffère le reboot. Après 3 reports consécutifs, le reboot est forcé avec un `wall` broadcast 5 min avant.
+- **Tolérance missed window** — un schedule raté est rattrapé dans les 24h ; au-delà, skip avec compteur `skipped_runs_count`.
+
+Guide opérateur : [docs/fr/patch-management.md](docs/fr/patch-management.md).
+
 ## Structure
 
 - `proto/lmdm/v1/` — définitions protobuf (API v1)

@@ -22,8 +22,9 @@ import (
 )
 
 // TestIntegrationPatchE2E verifies the full patch scheduling flow:
-//   DB schedule (next_fire_at already due) → engine tick →
-//   NATS ApplyPatchesCommand published with the right reboot_policy.
+//
+//	DB schedule (next_fire_at already due) → engine tick →
+//	NATS ApplyPatchesCommand published with the right reboot_policy.
 func TestIntegrationPatchE2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test requires Docker")

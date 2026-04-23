@@ -11,10 +11,10 @@ import (
 
 // fakeRebootExecutor records calls for use in unit tests.
 type fakeRebootExecutor struct {
-	broadcasts  []string
+	broadcasts   []string
 	rebootCalled bool
-	sleeps      []time.Duration
-	rebootErr   error
+	sleeps       []time.Duration
+	rebootErr    error
 }
 
 func (f *fakeRebootExecutor) Broadcast(_ context.Context, msg string) error {

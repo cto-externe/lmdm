@@ -42,7 +42,7 @@ type fakePatchManager struct {
 	detectErr     error
 }
 
-func (f *fakePatchManager) Family() string { return "fake" }
+func (f *fakePatchManager) Family() string                         { return "fake" }
 func (f *fakePatchManager) RefreshSources(_ context.Context) error { return nil }
 func (f *fakePatchManager) DetectUpdates(_ context.Context) ([]distro.Update, bool, error) {
 	return f.detectUpdates, f.detectReboot, f.detectErr

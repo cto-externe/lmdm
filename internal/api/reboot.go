@@ -17,9 +17,9 @@ import (
 
 // allowedRebootPolicies is the set of accepted reboot_policy values.
 var allowedRebootPolicies = map[string]struct{}{
-	"admin_only":               {},
-	"immediate_after_apply":    {},
-	"next_maintenance_window":  {},
+	"admin_only":              {},
+	"immediate_after_apply":   {},
+	"next_maintenance_window": {},
 }
 
 // rebootDeviceRequest is the optional JSON body for POST /devices/{id}/reboot.

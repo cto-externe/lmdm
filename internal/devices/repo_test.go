@@ -425,6 +425,140 @@ func TestIntegrationFindLatestHealth_NoData_ReturnsSentinel(t *testing.T) {
 	}
 }
 
+func TestIntegrationListTenantDeviceIDs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantA := uuid.MustParse(defaultTenant)
+	tenantB := uuid.New()
+
+	// Insert 2 devices for tenant A.
+	for i := 0; i < 2; i++ {
+		if err := r.Insert(ctx, &Device{
+			ID:                 uuid.New(),
+			TenantID:           tenantA,
+			Type:               TypeWorkstation,
+			Hostname:           fmt.Sprintf("A-%d", i),
+			AgentPubkeyEd25519: []byte(fmt.Sprintf("ed-a-%d", i)),
+			AgentPubkeyMLDSA:   []byte(fmt.Sprintf("ml-a-%d", i)),
+		}); err != nil {
+			t.Fatalf("insert tenant A device %d: %v", i, err)
+		}
+	}
+
+	// Insert 1 device for tenant B (must insert tenant B row first due to FK).
+	if _, err := r.pool.Exec(ctx, `INSERT INTO tenants (id, name) VALUES ($1, $2)`, tenantB, "tenant-b-ltdi"); err != nil {
+		t.Fatalf("insert tenant B: %v", err)
+	}
+	devB := uuid.New()
+	if err := r.Insert(ctx, &Device{
+		ID:                 devB,
+		TenantID:           tenantB,
+		Type:               TypeWorkstation,
+		Hostname:           "B-0",
+		AgentPubkeyEd25519: []byte("ed-b-0"),
+		AgentPubkeyMLDSA:   []byte("ml-b-0"),
+	}); err != nil {
+		t.Fatalf("insert tenant B device: %v", err)
+	}
+
+	// Tenant A must return 2 IDs.
+	idsA, err := r.ListTenantDeviceIDs(ctx, tenantA)
+	if err != nil {
+		t.Fatalf("ListTenantDeviceIDs(tenantA): %v", err)
+	}
+	if len(idsA) != 2 {
+		t.Errorf("tenantA: got %d IDs, want 2", len(idsA))
+	}
+
+	// Tenant B must return exactly the one device.
+	idsB, err := r.ListTenantDeviceIDs(ctx, tenantB)
+	if err != nil {
+		t.Fatalf("ListTenantDeviceIDs(tenantB): %v", err)
+	}
+	if len(idsB) != 1 || idsB[0] != devB {
+		t.Errorf("tenantB: got %v, want [%v]", idsB, devB)
+	}
+
+	// Unknown tenant must return empty slice, no error.
+	idsNone, err := r.ListTenantDeviceIDs(ctx, uuid.New())
+	if err != nil {
+		t.Fatalf("ListTenantDeviceIDs(unknown): %v", err)
+	}
+	if len(idsNone) != 0 {
+		t.Errorf("unknown tenant: got %d IDs, want 0", len(idsNone))
+	}
+}
+
+func TestIntegrationUpdateRebootOverrides(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse(defaultTenant)
+
+	// Insert a device to apply overrides to.
+	deviceID := uuid.New()
+	d := &Device{
+		ID:                 deviceID,
+		TenantID:           tenantID,
+		Type:               TypeWorkstation,
+		Hostname:           "reboot-override-host",
+		AgentPubkeyEd25519: []byte("ed25519-pub"),
+		AgentPubkeyMLDSA:   []byte("mldsa-pub"),
+	}
+	if err := r.Insert(ctx, d); err != nil {
+		t.Fatalf("Insert device: %v", err)
+	}
+
+	// Set both overrides.
+	policy := "next_maintenance_window"
+	window := "0 3 * * 0"
+	if err := r.UpdateRebootOverrides(ctx, tenantID, deviceID, &policy, &window); err != nil {
+		t.Fatalf("UpdateRebootOverrides: %v", err)
+	}
+
+	// Reload and verify.
+	var gotPolicy, gotWindow *string
+	if err := r.Pool().QueryRow(ctx, `
+		SELECT reboot_policy_override, maintenance_window_override
+		  FROM devices WHERE id = $1 AND tenant_id = $2
+	`, deviceID, tenantID).Scan(&gotPolicy, &gotWindow); err != nil {
+		t.Fatalf("reload device overrides: %v", err)
+	}
+	if gotPolicy == nil || *gotPolicy != policy {
+		t.Errorf("reboot_policy_override = %v, want %q", gotPolicy, policy)
+	}
+	if gotWindow == nil || *gotWindow != window {
+		t.Errorf("maintenance_window_override = %v, want %q", gotWindow, window)
+	}
+
+	// Clear overrides with nil.
+	if err := r.UpdateRebootOverrides(ctx, tenantID, deviceID, nil, nil); err != nil {
+		t.Fatalf("UpdateRebootOverrides (clear): %v", err)
+	}
+
+	if err := r.Pool().QueryRow(ctx, `
+		SELECT reboot_policy_override, maintenance_window_override
+		  FROM devices WHERE id = $1 AND tenant_id = $2
+	`, deviceID, tenantID).Scan(&gotPolicy, &gotWindow); err != nil {
+		t.Fatalf("reload device overrides after clear: %v", err)
+	}
+	if gotPolicy != nil {
+		t.Errorf("reboot_policy_override after clear = %v, want nil", gotPolicy)
+	}
+	if gotWindow != nil {
+		t.Errorf("maintenance_window_override after clear = %v, want nil", gotWindow)
+	}
+}
+
 func replaceUserDevices(dsn, user, password string) string {
 	const scheme = "postgres://"
 	if len(dsn) < len(scheme) || dsn[:len(scheme)] != scheme {

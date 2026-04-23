@@ -14,6 +14,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/db"
 	"github.com/cto-externe/lmdm/internal/deployments"
 	"github.com/cto-externe/lmdm/internal/devices"
+	"github.com/cto-externe/lmdm/internal/patchschedule"
 	"github.com/cto-externe/lmdm/internal/profiles"
 	"github.com/cto-externe/lmdm/internal/revocation"
 	"github.com/cto-externe/lmdm/internal/tokens"
@@ -37,8 +38,9 @@ type Deps struct {
 	LoginRateLimit *auth.RateLimiter
 	MFARateLimit   *auth.RateLimiter
 
-	NATS     *nats.Conn
-	TenantID uuid.UUID
+	NATS      *nats.Conn
+	TenantID  uuid.UUID
+	PatchRepo *patchschedule.Repository
 }
 
 // Router returns an http.Handler with all /api/v1/ routes registered.
@@ -117,6 +119,24 @@ func Router(d *Deps) http.Handler {
 		authed(auth.RequirePermission(auth.PermDeploymentsManage, http.HandlerFunc(d.handleValidateDeployment))))
 	mux.Handle("POST /api/v1/deployments/{id}/rollback",
 		authed(auth.RequirePermission(auth.PermDeploymentsManage, http.HandlerFunc(d.handleRollbackDeployment))))
+
+	// ----- Patch schedules -----
+	mux.Handle("GET /api/v1/patch-schedules",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesRead, http.HandlerFunc(d.handleListPatchSchedules))))
+	mux.Handle("GET /api/v1/patch-schedules/{id}",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesRead, http.HandlerFunc(d.handleGetPatchSchedule))))
+	mux.Handle("POST /api/v1/patch-schedules",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handleCreatePatchSchedule))))
+	mux.Handle("DELETE /api/v1/patch-schedules/{id}",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handleDeletePatchSchedule))))
+
+	// ----- Reboot + policy -----
+	mux.Handle("POST /api/v1/devices/{id}/reboot",
+		authed(auth.RequirePermission(auth.PermDevicesReboot, http.HandlerFunc(d.handleRebootDevice))))
+	mux.Handle("PATCH /api/v1/tenants/current/reboot-policy",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handlePatchTenantPolicy))))
+	mux.Handle("PATCH /api/v1/devices/{id}/reboot-policy",
+		authed(auth.RequirePermission(auth.PermPatchSchedulesManage, http.HandlerFunc(d.handlePatchDevicePolicyOverride))))
 
 	return mux
 }

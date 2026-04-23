@@ -123,6 +123,13 @@ message ApplyPatchesCommand {
   // Reboot window (if auto_reboot = true).
   google.protobuf.Timestamp reboot_after = 4;
   google.protobuf.Timestamp reboot_before = 5;
+
+  // Reboot policy to apply after the patch installation succeeds.
+  // Values: "admin_only" (default), "immediate_after_apply",
+  // "next_maintenance_window". When "immediate_after_apply" and the
+  // agent's PatchManager reports reboot_required=true, the agent
+  // chains a local RebootCommand (with reason="immediate_after_patch").
+  string reboot_policy = 6;
 }
 
 message PatchFilter {
@@ -156,11 +163,22 @@ message RollbackCommand {
 // ---------------------------------------------------------------------------
 
 message RebootCommand {
-  // Delay before reboot.
+  // Delay before reboot. Kept for back-compat with existing callers.
   uint32 delay_seconds = 1;
 
-  // User notification message (displayed on screen before reboot).
+  // User notification message (displayed via `wall` broadcast).
   string user_message = 2;
+
+  // Free-form reason for audit trail. e.g. "scheduled_patch",
+  // "admin_triggered", "immediate_after_patch".
+  string reason = 3;
+
+  // Grace period (in seconds) between the wall broadcast and the actual
+  // reboot. Defaults to 300 (5 min) when 0.
+  uint32 grace_period_seconds = 4;
+
+  // If true, bypass the session check and defer_count logic.
+  bool force = 5;
 }
 
 message RequestInventoryCommand {

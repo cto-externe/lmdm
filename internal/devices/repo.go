@@ -358,6 +358,42 @@ func (r *Repository) FindLatestHealth(ctx context.Context, tenantID, deviceID uu
 	return blob, ts, nil
 }
 
+// UpdateRebootOverrides sets (or clears) the per-device reboot policy and
+// maintenance window overrides. A nil pointer writes NULL — the device
+// inherits the tenant default. Caller is responsible for cron validation.
+func (r *Repository) UpdateRebootOverrides(ctx context.Context, tenantID, deviceID uuid.UUID, rebootOverride, windowOverride *string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE devices
+		   SET reboot_policy_override = $3,
+		       maintenance_window_override = $4
+		 WHERE id = $2 AND tenant_id = $1
+	`, tenantID, deviceID, rebootOverride, windowOverride)
+	return err
+}
+
+// ListTenantDeviceIDs returns every device UUID for the given tenant.
+// Used by the patchschedule engine when a schedule targets the whole tenant
+// (device_id IS NULL). Bypasses RLS by using tenant_id explicitly — the
+// engine is a system actor that spans tenants.
+func (r *Repository) ListTenantDeviceIDs(ctx context.Context, tenantID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT id FROM devices WHERE tenant_id = $1
+	`, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // ListUpdates returns available updates for a device.
 func (r *Repository) ListUpdates(ctx context.Context, tenantID, deviceID uuid.UUID) ([]UpdateInfo, bool, error) {
 	const q = `SELECT package_name, current_version, available_version, is_security, source, detected_at

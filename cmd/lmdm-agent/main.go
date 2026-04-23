@@ -36,6 +36,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/agentpatchrunner"
 	"github.com/cto-externe/lmdm/internal/agentpolicy"
 	"github.com/cto-externe/lmdm/internal/agentrunner"
+	"github.com/cto-externe/lmdm/internal/agentsession"
 	"github.com/cto-externe/lmdm/internal/agentstate"
 	"github.com/cto-externe/lmdm/internal/agenttls"
 	"github.com/cto-externe/lmdm/internal/distro"
@@ -281,16 +282,19 @@ func cmdRun(args []string) error {
 	snapRoot := filepath.Join(*dataDir, "snapshots")
 	profileStore := agentpolicy.NewProfileStore(filepath.Join(*dataDir, "profiles"))
 	policyHandler := agentpolicy.NewHandler(agentpolicy.HandlerOptions{
-		NC:        bus.NC(),
-		ServerPub: id.ServerPub,
-		Registry:  policy.DefaultRegistry(),
-		DeviceID:  deviceID,
-		SnapRoot:  snapRoot,
-		Store:     profileStore,
-		PM:        pm,
-		JS:        bus,
-		State:     stateStore,
-		HCRunner:  hcRunner,
+		NC:            bus.NC(),
+		ServerPub:     id.ServerPub,
+		Registry:      policy.DefaultRegistry(),
+		DeviceID:      deviceID,
+		SnapRoot:      snapRoot,
+		Store:         profileStore,
+		PM:            pm,
+		JS:            bus,
+		State:         stateStore,
+		HCRunner:      hcRunner,
+		Session:       agentsession.NewChecker(),
+		RebootExec:    agentpolicy.NewRebootExecutor(),
+		MaxDeferCount: 3,
 	})
 	if err := policyHandler.Start(); err != nil {
 		return fmt.Errorf("policy handler: %w", err)

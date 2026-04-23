@@ -29,6 +29,10 @@ const (
 	// Admin-only: revocation is an irreversible lockout that forces the device
 	// to re-enroll before it can reconnect.
 	PermDevicesRevoke Permission = "devices.revoke"
+
+	PermPatchSchedulesRead   Permission = "patch_schedules.read"
+	PermPatchSchedulesManage Permission = "patch_schedules.manage"
+	PermDevicesReboot        Permission = "devices.reboot"
 )
 
 // rolePerms maps each role to the set of permissions it holds.
@@ -41,7 +45,10 @@ var rolePerms = map[Role]map[Permission]struct{}{
 		PermTokensRead: {}, PermTokensCreate: {},
 		PermUsersRead: {}, PermUsersManage: {},
 		PermDeploymentsRead: {}, PermDeploymentsManage: {},
-		PermDevicesRevoke: {},
+		PermDevicesRevoke:        {},
+		PermPatchSchedulesRead:   {},
+		PermPatchSchedulesManage: {},
+		PermDevicesReboot:        {},
 	},
 	RoleOperator: {
 		PermDevicesRead: {}, PermInventoryRead: {}, PermComplianceRead: {},
@@ -49,12 +56,16 @@ var rolePerms = map[Role]map[Permission]struct{}{
 		PermProfilesRead: {}, PermProfilesAssign: {},
 		PermTokensRead: {}, PermTokensCreate: {},
 		PermDeploymentsRead: {}, PermDeploymentsManage: {},
+		PermPatchSchedulesRead:   {},
+		PermPatchSchedulesManage: {},
+		PermDevicesReboot:        {},
 	},
 	RoleViewer: {
 		PermDevicesRead: {}, PermInventoryRead: {}, PermComplianceRead: {},
-		PermUpdatesRead:     {},
-		PermProfilesRead:    {},
-		PermDeploymentsRead: {},
+		PermUpdatesRead:        {},
+		PermProfilesRead:       {},
+		PermDeploymentsRead:    {},
+		PermPatchSchedulesRead: {},
 	},
 }
 

@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -37,7 +38,9 @@ import (
 	"github.com/cto-externe/lmdm/internal/natsbus"
 	"github.com/cto-externe/lmdm/internal/objectstore"
 	"github.com/cto-externe/lmdm/internal/patchingester"
+	"github.com/cto-externe/lmdm/internal/patchschedule"
 	"github.com/cto-externe/lmdm/internal/profiles"
+	"github.com/cto-externe/lmdm/internal/rebootingester"
 	"github.com/cto-externe/lmdm/internal/revocation"
 	"github.com/cto-externe/lmdm/internal/server"
 	"github.com/cto-externe/lmdm/internal/serverkey"
@@ -298,6 +301,14 @@ func run() error {
 
 	usersRepo := users.New(pool)
 	auditWriter := audit.NewWriter(pool)
+
+	rebootIng := rebootingester.New(bus.NC(), pool, deviceRepo, auditWriter)
+	if err := rebootIng.Start(ctx); err != nil {
+		return fmt.Errorf("rebootingester start: %w", err)
+	}
+	defer func() { _ = rebootIng.Stop() }()
+	slog.Info("reboot ingester started")
+
 	authSvc := &auth.Service{
 		Users:    usersRepo,
 		Audit:    auditWriter,
@@ -318,6 +329,17 @@ func run() error {
 		}
 	}()
 	slog.Info("deployment engine started")
+
+	// Patch schedule engine (server-side cron for patch management).
+	patchRepo := patchschedule.NewRepository(pool)
+	patchResolver := patchschedule.NewResolver(pool.Pool)
+	patchEngine := patchschedule.NewEngine(patchRepo, bus.NC(), patchResolver, deviceRepo, 60*time.Second)
+	go func() {
+		if err := patchEngine.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("patchschedule engine exited", "err", err)
+		}
+	}()
+	slog.Info("patchschedule engine started")
 
 	cmdResultsIng := commandresultsingester.New(bus, deviceRepo, deploymentEngine)
 	if err := cmdResultsIng.Start(ctx); err != nil {
@@ -343,6 +365,7 @@ func run() error {
 		MFARateLimit:      auth.NewRateLimiter(60, time.Minute),
 		NATS:              bus.NC(),
 		TenantID:          tenantID,
+		PatchRepo:         patchRepo,
 	}
 	mux.Handle("/api/", api.Router(apiDeps))
 

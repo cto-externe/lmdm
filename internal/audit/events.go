@@ -37,4 +37,10 @@ const (
 	ActionDeploymentValidated      Action = "deployment.validated"
 	ActionDeploymentRolledBack     Action = "deployment.rolled_back_by_admin"
 	ActionDeviceCertRevoked        Action = "device.cert_revoked"
+	ActionPatchScheduleCreated     Action = "patch_schedule.created"
+	ActionPatchScheduleDeleted     Action = "patch_schedule.deleted"
+
+	ActionDeviceReboot                Action = "device.reboot"
+	ActionTenantPolicyUpdated         Action = "tenant.policy.updated"
+	ActionDevicePolicyOverrideUpdated Action = "device.policy_override.updated"
 )

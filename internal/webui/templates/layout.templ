@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package templates
+
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+import "github.com/cto-externe/lmdm/internal/webui/components"
+import "github.com/cto-externe/lmdm/internal/auth"
+
+// LayoutProps are the values every authenticated page needs.
+type LayoutProps struct {
+	Lang      string
+	CSRFToken string
+	Principal *auth.Principal
+	PageTitle string
+	ActiveNav string
+}
+
+templ Layout(p LayoutProps) {
+	<!DOCTYPE html>
+	<html lang={ p.Lang }>
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ p.PageTitle } — { i18n.T(p.Lang, "app.name") }</title>
+			<link rel="stylesheet" href="/web/static/app.css"/>
+			<script src="/web/static/htmx.min.js" defer></script>
+			<link rel="icon" href="/web/static/favicon.ico"/>
+		</head>
+		<body class="bg-gray-50 text-gray-900 flex h-screen">
+			<script>
+				document.body.addEventListener('htmx:configRequest', function(e) {
+					const m = document.cookie.match(/lmdm_csrf=([^;]+)/);
+					if (m) e.detail.headers['X-CSRF-Token'] = m[1];
+				});
+			</script>
+			@components.Nav(p.Lang, p.Principal, p.ActiveNav)
+			<div class="flex-1 flex flex-col overflow-hidden">
+				<header class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+					<h1 class="text-lg font-semibold">{ p.PageTitle }</h1>
+					<div class="text-sm text-gray-600">
+						if p.Principal != nil {
+							<span>{ p.Principal.Email }</span>
+							<span class="mx-2">·</span>
+							<form method="post" action="/web/logout" class="inline">
+								<input type="hidden" name="_csrf" value={ p.CSRFToken }/>
+								<button type="submit" class="text-primary-600 hover:underline">
+									{ i18n.T(p.Lang, "nav.logout") }
+								</button>
+							</form>
+						}
+					</div>
+				</header>
+				<main class="flex-1 overflow-auto p-6">
+					{ children... }
+				</main>
+			</div>
+		</body>
+	</html>
+}

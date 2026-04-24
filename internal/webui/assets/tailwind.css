@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom helpers — kept minimal, prefer Tailwind utility classes. */
+@layer components {
+    .badge-status-online   { @apply bg-green-100 text-green-800; }
+    .badge-status-offline  { @apply bg-red-100 text-red-800; }
+    .badge-status-never    { @apply bg-gray-100 text-gray-600; }
+}

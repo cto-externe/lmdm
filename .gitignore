@@ -52,3 +52,10 @@ Thumbs.db
 /lmdm-server
 /lmdm-token
 /lmdm-profile
+
+# Tailwind build output (regenerated from tailwind.css)
+/internal/webui/assets/app.css
+/bin/tailwindcss
+
+# Templ generated Go files
+/internal/webui/**/*_templ.go

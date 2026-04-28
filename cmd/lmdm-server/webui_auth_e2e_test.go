@@ -142,7 +142,7 @@ func TestIntegrationWebUIAuth_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /web/login = %d", resp.StatusCode)
 	}
@@ -163,7 +163,7 @@ func TestIntegrationWebUIAuth_EndToEnd(t *testing.T) {
 	if got := resp.Header.Get("HX-Redirect"); got != "/web/login/mfa" {
 		t.Errorf("POST /web/login HX-Redirect = %q, want /web/login/mfa", got)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if webuiGetCookie(jar, srv.URL, "lmdm_mfa_pending") == "" {
 		t.Fatal("lmdm_mfa_pending cookie not set after POST /web/login")
 	}
@@ -173,7 +173,7 @@ func TestIntegrationWebUIAuth_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET /web/login/mfa = %d", resp.StatusCode)
 	}
@@ -197,7 +197,7 @@ func TestIntegrationWebUIAuth_EndToEnd(t *testing.T) {
 	if got := resp.Header.Get("HX-Redirect"); got != "/web/dashboard" {
 		t.Errorf("POST /web/login/mfa HX-Redirect = %q, want /web/dashboard", got)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if webuiGetCookie(jar, srv.URL, "lmdm_session") == "" {
 		t.Error("lmdm_session cookie not set after MFA verification")
@@ -229,7 +229,7 @@ func TestIntegrationWebUIAuth_EndToEnd(t *testing.T) {
 	if loc := resp.Header.Get("Location"); loc != "/web/login" {
 		t.Errorf("POST /web/logout Location = %q, want /web/login", loc)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 }
 
 // --- Helpers (webui-specific, prefixed to avoid collisions with auth_e2e_test helpers) ---
@@ -263,11 +263,10 @@ func webuiGetCookie(jar *cookiejar.Jar, srvURL, name string) string {
 
 func webuiReadBody(t *testing.T, resp *http.Response) string {
 	t.Helper()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return string(b)
 }
-

@@ -14,6 +14,12 @@ jobs:
         with:
           go-version: '1.26'
       - uses: bufbuild/buf-action@v1
+      - name: install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1001
+      - name: install tailwindcss
+        run: ./scripts/install-tailwind.sh
+      - name: build webui assets
+        run: make webui-build
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -31,7 +37,14 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
-      - run: go build ./...
+      - name: install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1001
+      - name: install tailwindcss
+        run: ./scripts/install-tailwind.sh
+      - name: build webui assets
+        run: make webui-build
+      - name: go build
+        run: go build ./...
 
   test:
     runs-on: ubuntu-latest
@@ -40,6 +53,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26'
+      - name: install templ
+        run: go install github.com/a-h/templ/cmd/templ@v0.3.1001
+      - name: install tailwindcss
+        run: ./scripts/install-tailwind.sh
+      - name: build webui assets
+        run: make webui-build
       - name: unit tests
         run: go test -short -race -coverprofile=coverage.out ./...
       - name: coverage summary

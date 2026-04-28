@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package components
+
+import "fmt"
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+
+// PaginationProps holds rendering parameters for the pagination component.
+type PaginationProps struct {
+	Lang        string
+	BaseURL     string
+	CurrentPage int
+	TotalPages  int
+	HXTarget    string
+	QueryParams string
+}
+
+templ Pagination(p PaginationProps) {
+	<div class="flex items-center justify-between mt-4 text-sm">
+		<div>{ fmt.Sprintf(i18n.T(p.Lang, "pagination.page"), p.CurrentPage, p.TotalPages) }</div>
+		<div class="space-x-2">
+			if p.CurrentPage > 1 {
+				<a href={ pageURL(p, p.CurrentPage-1) } hx-get={ pageURLString(p, p.CurrentPage-1) } hx-target={ p.HXTarget } hx-swap="outerHTML" class="px-3 py-1 border rounded hover:bg-gray-50">
+					{ i18n.T(p.Lang, "pagination.prev") }
+				</a>
+			}
+			if p.CurrentPage < p.TotalPages {
+				<a href={ pageURL(p, p.CurrentPage+1) } hx-get={ pageURLString(p, p.CurrentPage+1) } hx-target={ p.HXTarget } hx-swap="outerHTML" class="px-3 py-1 border rounded hover:bg-gray-50">
+					{ i18n.T(p.Lang, "pagination.next") }
+				</a>
+			}
+		</div>
+	</div>
+}
+
+func pageURL(p PaginationProps, page int) templ.SafeURL {
+	return templ.URL(pageURLString(p, page))
+}
+
+func pageURLString(p PaginationProps, page int) string {
+	q := fmt.Sprintf("page=%d", page)
+	if p.QueryParams != "" {
+		q = p.QueryParams + "&" + q
+	}
+	return p.BaseURL + "?" + q
+}

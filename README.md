@@ -207,6 +207,18 @@ LMDM orchestre la détection et l'application des mises à jour système :
 
 Guide opérateur : [docs/fr/patch-management.md](docs/fr/patch-management.md).
 
+### WebUI
+
+LMDM embarque une console web minimaliste dans le même binaire :
+
+- **Stack** : Templ (HTML Go-typé) + HTMX + Tailwind CSS. Aucune toolchain Node, aucun bundler JS.
+- **Assets embarqués** : HTMX, CSS compilé, favicon via `go:embed`. Un seul binaire à déployer.
+- **Auth** : cookies HttpOnly + Secure + SameSite=Strict partagés avec l'API (même JWT). Middleware CSRF double-submit.
+- **Pages MVP** : Login + TOTP MFA + Dashboard placeholder + Postes (liste read-only avec filtres + pagination HTMX polling 30s).
+- **i18n** : infra prête pour plusieurs langues ; FR livré au MVP.
+
+Accès : `https://lmdm.exemple.fr/web/login`. Guide opérateur : [docs/fr/webui.md](docs/fr/webui.md).
+
 ## Structure
 
 - `proto/lmdm/v1/` — définitions protobuf (API v1)

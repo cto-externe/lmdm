@@ -1,8 +1,10 @@
-.PHONY: help build test test-unit test-integration lint proto clean docker-up docker-down keys
+.PHONY: help build test test-unit test-integration lint proto clean docker-up docker-down keys tailwind templ webui-build install-tailwind install-templ tailwind-watch
 
 GO ?= go
 GOLANGCI_LINT ?= golangci-lint
 BUF ?= buf
+TAILWIND ?= bin/tailwindcss
+TEMPL    ?= $(shell go env GOPATH)/bin/templ
 
 help:
 	@echo "Cibles disponibles :"
@@ -16,7 +18,7 @@ help:
 	@echo "  docker-down        - arrête la stack dev"
 	@echo "  clean              - supprime les artefacts de build"
 
-build:
+build: webui-build
 	$(GO) build -o bin/lmdm-server ./cmd/lmdm-server
 
 test:
@@ -47,3 +49,21 @@ clean:
 keys:
 	mkdir -p deploy/secrets
 	$(GO) run ./cmd/lmdm-keygen --out deploy/secrets
+
+install-tailwind:
+	./scripts/install-tailwind.sh
+
+install-templ:
+	go install github.com/a-h/templ/cmd/templ@latest
+
+tailwind:
+	$(TAILWIND) -i internal/webui/assets/tailwind.css -o internal/webui/assets/app.css --minify
+
+tailwind-watch:
+	$(TAILWIND) -i internal/webui/assets/tailwind.css -o internal/webui/assets/app.css --watch
+
+templ:
+	$(TEMPL) generate ./internal/webui/...
+
+webui-build: templ tailwind
+	@echo "WebUI assets regenerated"

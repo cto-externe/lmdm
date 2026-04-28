@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package templates
+
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+import "github.com/cto-externe/lmdm/internal/webui/components"
+
+templ MFA(lang, csrfToken, errorMsg string) {
+	<!DOCTYPE html>
+	<html lang={ lang }>
+		<head>
+			<meta charset="utf-8"/>
+			<title>{ i18n.T(lang, "mfa.title") }</title>
+			<link rel="stylesheet" href="/web/static/app.css"/>
+			<script src="/web/static/htmx.min.js" defer></script>
+			<script>
+				document.body.addEventListener('htmx:configRequest', function(e) {
+					const m = document.cookie.match(/lmdm_csrf=([^;]+)/);
+					if (m) e.detail.headers['X-CSRF-Token'] = m[1];
+				});
+			</script>
+		</head>
+		<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+			<div id="mfa-form" class="bg-white rounded shadow p-8 w-full max-w-md">
+				<h1 class="text-2xl font-bold mb-6">{ i18n.T(lang, "mfa.title") }</h1>
+				@components.ErrorFlash(errorMsg)
+				<form hx-post="/web/login/mfa" hx-target="#mfa-form" hx-swap="outerHTML">
+					<input type="hidden" name="_csrf" value={ csrfToken }/>
+					<div class="mb-6">
+						<label class="block text-sm font-medium mb-1">{ i18n.T(lang, "mfa.code") }</label>
+						<input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" required maxlength="6" class="w-full border rounded px-3 py-2 text-center tracking-widest text-2xl"/>
+					</div>
+					@components.PrimaryButton(i18n.T(lang, "mfa.submit"))
+				</form>
+			</div>
+		</body>
+	</html>
+}

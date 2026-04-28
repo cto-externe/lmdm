@@ -150,15 +150,25 @@ func (r *Repository) ListDevices(ctx context.Context, tenantID uuid.UUID, f List
 	var total int
 	var out []Device
 
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
 	err := r.withTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
 		countQ := "SELECT count(*) FROM devices WHERE 1=1" + where
 		if err := tx.QueryRow(ctx, countQ, args...).Scan(&total); err != nil {
 			return err
 		}
+		// LIMIT and OFFSET are integer-bounded above, safe to fmt.Sprintf.
 		q := `SELECT id, tenant_id, device_type, hostname, serial_number, manufacturer, model,
 		             site_id, status, last_seen, enrolled_at, enrolled_via_token,
 		             agent_pubkey_ed25519, agent_pubkey_mldsa, cert_serial, agent_version
-		        FROM devices WHERE 1=1` + where + ` ORDER BY enrolled_at DESC LIMIT 100`
+		        FROM devices WHERE 1=1` + where +
+			fmt.Sprintf(` ORDER BY enrolled_at DESC LIMIT %d OFFSET %d`, limit, f.Offset)
 		rows, err := tx.Query(ctx, q, args...)
 		if err != nil {
 			return err

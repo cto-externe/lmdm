@@ -133,3 +133,74 @@ func TestRequirePermission_NoPrincipal_401(t *testing.T) {
 		t.Fatalf("expected 401 (no principal), got %d", rr.Code)
 	}
 }
+
+func TestRequireAuth_AcceptsCookieFallback(t *testing.T) {
+	pk := newMwKey(t)
+	signer := NewJWTSigner(pk, time.Minute)
+	tok, err := signer.IssueAccess(uuid.New(), uuid.New(), RoleAdmin, "x@y.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if PrincipalFrom(r.Context()) == nil {
+			t.Fatal("no principal")
+		}
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/api/v1/devices", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: tok})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("cookie auth failed: status = %d", rr.Code)
+	}
+}
+
+func TestRequireAuth_HeaderTakesPrecedenceOverCookie(t *testing.T) {
+	pk := newMwKey(t)
+	signer := NewJWTSigner(pk, time.Minute)
+	adminTok, _ := signer.IssueAccess(uuid.New(), uuid.New(), RoleAdmin, "admin@y.test")
+	viewerTok, _ := signer.IssueAccess(uuid.New(), uuid.New(), RoleViewer, "viewer@y.test")
+
+	var seenRole string
+	h := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := PrincipalFrom(r.Context())
+		seenRole = string(p.Role)
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer "+adminTok)
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: viewerTok})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if seenRole != string(RoleAdmin) {
+		t.Errorf("header should win, got role %q", seenRole)
+	}
+}
+
+func TestRequireAuth_NeitherHeaderNorCookie_401(t *testing.T) {
+	pk := newMwKey(t)
+	signer := NewJWTSigner(pk, time.Minute)
+	h := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest("GET", "/", nil))
+	if rr.Code != 401 {
+		t.Errorf("no auth = %d, want 401", rr.Code)
+	}
+}
+
+func TestRequireAuth_EmptyBearerFallsBackToCookie(t *testing.T) {
+	pk := newMwKey(t)
+	signer := NewJWTSigner(pk, time.Minute)
+	tok, _ := signer.IssueAccess(uuid.New(), uuid.New(), RoleAdmin, "x@y.test")
+	h := RequireAuth(signer)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) }))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Authorization", "Bearer ")
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: tok})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("empty bearer + cookie should auth, got %d", rr.Code)
+	}
+}

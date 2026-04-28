@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package components
+
+import "github.com/cto-externe/lmdm/internal/auth"
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+
+type navItem struct {
+	Key  string
+	Href string
+	Perm auth.Permission
+}
+
+var navItems = []navItem{
+	{Key: "nav.dashboard", Href: "/web/dashboard", Perm: auth.PermDevicesRead},
+	{Key: "nav.devices", Href: "/web/devices", Perm: auth.PermDevicesRead},
+	// More items land in plans #2/#3.
+}
+
+templ Nav(lang string, p *auth.Principal, active string) {
+	<aside class="w-64 bg-white border-r border-gray-200 flex-shrink-0">
+		<div class="p-6 border-b border-gray-200">
+			<h2 class="text-xl font-bold text-primary-700">{ i18n.T(lang, "app.name") }</h2>
+			<p class="text-xs text-gray-500">{ i18n.T(lang, "app.tagline") }</p>
+		</div>
+		<nav class="p-4 space-y-1">
+			for _, item := range navItems {
+				if p != nil && auth.HasPermission(p.Role, item.Perm) {
+					if itemKey(item) == active {
+						<a href={ templ.URL(item.Href) } class="block px-3 py-2 rounded bg-primary-50 text-primary-700 font-medium">
+							{ i18n.T(lang, item.Key) }
+						</a>
+					} else {
+						<a href={ templ.URL(item.Href) } class="block px-3 py-2 rounded hover:bg-gray-100 text-gray-700">
+							{ i18n.T(lang, item.Key) }
+						</a>
+					}
+				}
+			}
+		</nav>
+	</aside>
+}
+
+func itemKey(i navItem) string {
+	return i.Key[len("nav."):]
+}

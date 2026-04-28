@@ -559,6 +559,76 @@ func TestIntegrationUpdateRebootOverrides(t *testing.T) {
 	}
 }
 
+func TestIntegrationListDevices_Pagination(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test requires Docker")
+	}
+	r, cleanup := setupRepo(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tenantID := uuid.MustParse(defaultTenant)
+
+	// Seed 5 devices.
+	for i := 0; i < 5; i++ {
+		if err := r.Insert(ctx, &Device{
+			ID:                 uuid.New(),
+			TenantID:           tenantID,
+			Type:               TypeWorkstation,
+			Hostname:           fmt.Sprintf("PAG-%03d", i),
+			AgentPubkeyEd25519: []byte(fmt.Sprintf("ed-pag-%d", i)),
+			AgentPubkeyMLDSA:   []byte(fmt.Sprintf("ml-pag-%d", i)),
+		}); err != nil {
+			t.Fatalf("seed device %d: %v", i, err)
+		}
+	}
+
+	// Page 1: Limit=2 Offset=0 → 2 devices, total=5.
+	page1, total, err := r.ListDevices(ctx, tenantID, ListFilter{Limit: 2, Offset: 0})
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if total != 5 {
+		t.Errorf("page1 total = %d, want 5", total)
+	}
+	if len(page1) != 2 {
+		t.Errorf("page1 len = %d, want 2", len(page1))
+	}
+
+	// Page 2: Limit=2 Offset=2 → next 2 devices, total=5.
+	page2, total2, err := r.ListDevices(ctx, tenantID, ListFilter{Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if total2 != 5 {
+		t.Errorf("page2 total = %d, want 5", total2)
+	}
+	if len(page2) != 2 {
+		t.Errorf("page2 len = %d, want 2", len(page2))
+	}
+
+	// No overlap between page1 and page2.
+	for _, d1 := range page1 {
+		for _, d2 := range page2 {
+			if d1.ID == d2.ID {
+				t.Errorf("page1 and page2 share device %v", d1.ID)
+			}
+		}
+	}
+
+	// Page 3: Limit=2 Offset=4 → 1 device, total=5.
+	page3, total3, err := r.ListDevices(ctx, tenantID, ListFilter{Limit: 2, Offset: 4})
+	if err != nil {
+		t.Fatalf("page3: %v", err)
+	}
+	if total3 != 5 {
+		t.Errorf("page3 total = %d, want 5", total3)
+	}
+	if len(page3) != 1 {
+		t.Errorf("page3 len = %d, want 1", len(page3))
+	}
+}
+
 func replaceUserDevices(dsn, user, password string) string {
 	const scheme = "postgres://"
 	if len(dsn) < len(scheme) || dsn[:len(scheme)] != scheme {

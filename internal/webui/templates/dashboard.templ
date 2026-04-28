@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package templates
+
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+
+templ Dashboard(p LayoutProps) {
+	@Layout(p) {
+		<div class="bg-white rounded shadow p-8 text-center text-gray-500">
+			<p class="text-lg">{ i18n.T(p.Lang, "dashboard.tbd") }</p>
+		</div>
+	}
+}

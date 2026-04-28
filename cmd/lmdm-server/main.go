@@ -6,9 +6,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,6 +50,7 @@ import (
 	"github.com/cto-externe/lmdm/internal/tlspki"
 	"github.com/cto-externe/lmdm/internal/tokens"
 	"github.com/cto-externe/lmdm/internal/users"
+	"github.com/cto-externe/lmdm/internal/webui"
 )
 
 func main() {
@@ -369,6 +372,32 @@ func run() error {
 	}
 	mux.Handle("/api/", api.Router(apiDeps))
 
+	// WebUI mount.
+	csrfKey, err := resolveWebCSRFKey(cfg.WebCSRFKey)
+	if err != nil {
+		return fmt.Errorf("web csrf key: %w", err)
+	}
+	webDevDir := cfg.WebAssetsDir
+	if cfg.WebDev && webDevDir == "" {
+		webDevDir = "internal/webui/assets"
+	}
+	if webDevDir != "" {
+		slog.Warn("webui: dev mode, serving assets from disk", "dir", webDevDir)
+	}
+	webDeps := webui.Deps{
+		Signer:        jwtSigner,
+		AuthService:   authSvc,
+		DevicesRepo:   deviceRepo,
+		CSRFKey:       csrfKey,
+		SecureCookies: !cfg.WebDev,
+		EnableHSTS:    !cfg.WebDev,
+		DevAssetsDir:  webDevDir,
+	}
+	if err := webui.Mount(mux, webDeps); err != nil {
+		return fmt.Errorf("webui mount: %w", err)
+	}
+	slog.Info("webui mounted", "dev", cfg.WebDev, "secure_cookies", !cfg.WebDev)
+
 	srv, err := server.New(cfg.HTTPAddr, cfg.GRPCAddr, mux, tlsConfig)
 	if err != nil {
 		return fmt.Errorf("server new: %w", err)
@@ -390,4 +419,23 @@ func run() error {
 	}
 
 	return srv.Shutdown(10 * time.Second)
+}
+
+func resolveWebCSRFKey(hexKey string) ([]byte, error) {
+	if hexKey != "" {
+		k, err := hex.DecodeString(strings.TrimSpace(hexKey))
+		if err != nil {
+			return nil, fmt.Errorf("hex decode: %w", err)
+		}
+		if len(k) < 32 {
+			return nil, errors.New("must be >= 32 bytes (64 hex chars)")
+		}
+		return k, nil
+	}
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		return nil, err
+	}
+	slog.Warn("webui: generated ephemeral CSRF key. Set LMDM_WEB_CSRF_KEY for stability across restarts.")
+	return k, nil
 }

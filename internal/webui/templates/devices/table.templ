@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package devices
+
+import "fmt"
+import "time"
+import lmdmdevices "github.com/cto-externe/lmdm/internal/devices"
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+import "github.com/cto-externe/lmdm/internal/webui/components"
+
+// TableProps holds the data required to render the devices table fragment.
+type TableProps struct {
+	Lang        string
+	Devices     []lmdmdevices.Device
+	Total       int
+	Page        int
+	PageSize    int
+	QueryParams string
+}
+
+templ Table(p TableProps) {
+	<div id="devices-table" hx-get={ fragmentURL(p) } hx-trigger="every 30s" hx-swap="outerHTML">
+		if len(p.Devices) == 0 {
+			<div class="bg-white rounded shadow p-8 text-center text-gray-500">
+				{ i18n.T(p.Lang, "devices.empty") }
+			</div>
+		} else {
+			<div class="bg-white rounded shadow overflow-hidden">
+				<table class="w-full text-sm">
+					<thead class="bg-gray-50 text-gray-700">
+						<tr>
+							<th class="px-4 py-2 text-left">{ i18n.T(p.Lang, "devices.col.hostname") }</th>
+							<th class="px-4 py-2 text-left">{ i18n.T(p.Lang, "devices.col.type") }</th>
+							<th class="px-4 py-2 text-left">{ i18n.T(p.Lang, "devices.col.status") }</th>
+							<th class="px-4 py-2 text-left">{ i18n.T(p.Lang, "devices.col.last_seen") }</th>
+							<th class="px-4 py-2 text-left">{ i18n.T(p.Lang, "devices.col.version") }</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-gray-100">
+						for _, d := range p.Devices {
+							<tr>
+								<td class="px-4 py-2 font-mono">{ d.Hostname }</td>
+								<td class="px-4 py-2">{ string(d.Type) }</td>
+								<td class="px-4 py-2">
+									@statusBadge(p.Lang, string(d.Status))
+								</td>
+								<td class="px-4 py-2 text-gray-600">
+									if d.LastSeen != nil {
+										{ relativeTime(*d.LastSeen) }
+									} else {
+										<span class="text-gray-400">—</span>
+									}
+								</td>
+								<td class="px-4 py-2 font-mono text-xs">
+									if d.AgentVersion != nil {
+										{ *d.AgentVersion }
+									} else {
+										<span class="text-gray-400">—</span>
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+			@components.Pagination(components.PaginationProps{
+				Lang:        p.Lang,
+				BaseURL:     "/web/devices/fragment",
+				CurrentPage: p.Page,
+				TotalPages:  totalPages(p.Total, p.PageSize),
+				HXTarget:    "#devices-table",
+				QueryParams: p.QueryParams,
+			})
+		}
+	</div>
+}
+
+templ statusBadge(lang, status string) {
+	switch status {
+		case "online":
+			<span class="px-2 py-1 rounded text-xs badge-status-online">{ i18n.T(lang, "devices.status.online") }</span>
+		case "offline":
+			<span class="px-2 py-1 rounded text-xs badge-status-offline">{ i18n.T(lang, "devices.status.offline") }</span>
+		default:
+			<span class="px-2 py-1 rounded text-xs badge-status-never">{ i18n.T(lang, "devices.status.never") }</span>
+	}
+}
+
+func relativeTime(t time.Time) string {
+	diff := time.Since(t)
+	switch {
+	case diff < time.Minute:
+		return "à l'instant"
+	case diff < time.Hour:
+		return fmt.Sprintf("il y a %d min", int(diff.Minutes()))
+	case diff < 24*time.Hour:
+		return fmt.Sprintf("il y a %d h", int(diff.Hours()))
+	default:
+		return t.Format("2006-01-02 15:04")
+	}
+}
+
+func totalPages(total, pageSize int) int {
+	if pageSize <= 0 {
+		return 1
+	}
+	n := total / pageSize
+	if total%pageSize > 0 {
+		n++
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+func fragmentURL(p TableProps) string {
+	q := p.QueryParams
+	if q != "" {
+		q += "&"
+	}
+	return fmt.Sprintf("/web/devices/fragment?%spage=%d&page_size=%d", q, p.Page, p.PageSize)
+}

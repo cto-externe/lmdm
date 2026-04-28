@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: EUPL-1.2
+// SPDX-FileCopyrightText: 2026 CTO Externe
+
+package devices
+
+import "github.com/cto-externe/lmdm/internal/webui/i18n"
+import "github.com/cto-externe/lmdm/internal/webui/templates"
+
+// ListProps holds the data required to render the devices list page.
+type ListProps struct {
+	Layout  templates.LayoutProps
+	Filters FilterValues
+	Table   TableProps
+}
+
+// FilterValues holds the current filter state for the devices list.
+type FilterValues struct {
+	Hostname string
+	Status   string
+	Type     string
+}
+
+templ List(p ListProps) {
+	@templates.Layout(p.Layout) {
+		<div class="bg-white rounded shadow p-4 mb-4">
+			<form hx-get="/web/devices/fragment" hx-target="#devices-table" hx-swap="outerHTML" hx-trigger="change, keyup delay:300ms from:input[name=hostname]">
+				<div class="flex gap-4 flex-wrap items-end">
+					<div>
+						<label class="block text-xs font-medium text-gray-600">{ i18n.T(p.Layout.Lang, "devices.filter.hostname") }</label>
+						<input type="text" name="hostname" value={ p.Filters.Hostname } class="border rounded px-2 py-1"/>
+					</div>
+					<div>
+						<label class="block text-xs font-medium text-gray-600">{ i18n.T(p.Layout.Lang, "devices.filter.status") }</label>
+						<select name="status" class="border rounded px-2 py-1">
+							<option value="">{ i18n.T(p.Layout.Lang, "devices.filter.all") }</option>
+							if p.Filters.Status == "online" {
+								<option value="online" selected>{ i18n.T(p.Layout.Lang, "devices.status.online") }</option>
+							} else {
+								<option value="online">{ i18n.T(p.Layout.Lang, "devices.status.online") }</option>
+							}
+							if p.Filters.Status == "offline" {
+								<option value="offline" selected>{ i18n.T(p.Layout.Lang, "devices.status.offline") }</option>
+							} else {
+								<option value="offline">{ i18n.T(p.Layout.Lang, "devices.status.offline") }</option>
+							}
+						</select>
+					</div>
+					<div>
+						<label class="block text-xs font-medium text-gray-600">{ i18n.T(p.Layout.Lang, "devices.filter.type") }</label>
+						<select name="type" class="border rounded px-2 py-1">
+							<option value="">{ i18n.T(p.Layout.Lang, "devices.filter.all") }</option>
+							if p.Filters.Type == "workstation" {
+								<option value="workstation" selected>workstation</option>
+							} else {
+								<option value="workstation">workstation</option>
+							}
+						</select>
+					</div>
+					<a href="/web/devices" class="text-sm text-gray-500 hover:underline self-center">
+						{ i18n.T(p.Layout.Lang, "devices.filter.reset") }
+					</a>
+				</div>
+			</form>
+		</div>
+		@Table(p.Table)
+	}
+}

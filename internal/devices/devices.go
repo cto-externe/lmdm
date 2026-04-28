@@ -58,4 +58,6 @@ type ListFilter struct {
 	Status   string // "online", "offline", etc. Empty = all.
 	Type     string // "workstation", "printer", etc. Empty = all.
 	Hostname string // Substring match (ILIKE). Empty = all.
+	Offset   int    // 0 = from start
+	Limit    int    // 0 = back-compat (effective cap at 100)
 }

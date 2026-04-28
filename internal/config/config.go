@@ -48,6 +48,16 @@ type Config struct {
 	// (signed by the CA) and its private key, loaded into tls.Config.
 	ServerCertPath string
 	ServerKeyPath  string
+
+	// WebDev enables developer mode: serves assets from disk (no embed FS),
+	// sets Secure=false on cookies and disables HSTS. Configured via LMDM_WEB_DEV.
+	WebDev bool
+	// WebCSRFKey is a hex-encoded 32-byte (64 hex chars) CSRF secret. If empty
+	// an ephemeral key is generated at startup. Configured via LMDM_WEB_CSRF_KEY.
+	WebCSRFKey string
+	// WebAssetsDir overrides the embedded asset FS and serves files from this
+	// directory (useful for hot-reload in dev). Configured via LMDM_WEB_ASSETS_DIR.
+	WebAssetsDir string
 }
 
 // EnvLookup is the minimal interface required to read an environment variable.
@@ -77,6 +87,9 @@ func Load(env EnvLookup) (*Config, error) {
 		CAKeyPath:            firstNonEmpty(env("LMDM_CA_KEY_PATH"), "deploy/secrets/ca.key"),
 		ServerCertPath:       firstNonEmpty(env("LMDM_SERVER_CERT_PATH"), "deploy/secrets/server.crt"),
 		ServerKeyPath:        firstNonEmpty(env("LMDM_SERVER_KEY_PATH"), "deploy/secrets/server.key"),
+		WebDev:               parseBoolOrDefault(env("LMDM_WEB_DEV"), false),
+		WebCSRFKey:           env("LMDM_WEB_CSRF_KEY"),
+		WebAssetsDir:         env("LMDM_WEB_ASSETS_DIR"),
 	}
 	return cfg, nil
 }
@@ -110,4 +123,17 @@ func parseIntOrDefault(s string, def int) int {
 		return def
 	}
 	return n
+}
+
+func parseBoolOrDefault(s string, def bool) bool {
+	if s == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(s)
+	if err != nil {
+		// Also accept "1" / "0" which ParseBool handles, but also plain
+		// non-empty strings used as truthy env vars (e.g. LMDM_WEB_DEV=yes).
+		return s != "0" && s != "false" && s != "no"
+	}
+	return b
 }
